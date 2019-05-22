@@ -87,9 +87,16 @@ def analyze_data(data, NUMPY_LIB=None, parameters={}):
 
     mask_events = mask_events & nleps & lepton_veto & njets & btags & met
 
-    import pdb
-    pdb.set_trace()
- 
+    #TODO: calculate XS, gen, pu, btagging, lepton weights 
+
+    #TODO: add Histograms for control variables
+
+    #TODO: add DNN evaluation
+
+    #TODO: think about how to split up different tt+jets backgrounds
+
+    #TODO: implement JECs
+
     return ret
  
 if __name__ == "__main__": 
