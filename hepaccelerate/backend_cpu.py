@@ -103,6 +103,25 @@ def min_in_offsets_kernel(content, offsets, mask_rows, mask_content, out):
                     accum = content[ielem]
                     first = False
         out[iev] = accum
+
+@numba.njit(parallel=True)
+def dnn_inputs_kernel(content, offsets, feats_indx, nobj, mask_rows, mask_content, out):
+    for iev in numba.prange(offsets.shape[0]-1):
+        if not mask_rows[iev]:
+            continue
+        start = offsets[iev]
+        end = offsets[iev + 1]
+
+        for idx in range(nobj):
+            index_to_get = 0
+            for ielem in range(start, end):
+                if mask_content[ielem]:
+                    if index_to_get == idx:
+                        out[iev][idx][feats_indx] = content[ielem]
+                        break
+                    else:
+                        index_to_get += 1
+
     
 @numba.njit(parallel=True)
 def get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, out):
@@ -111,7 +130,7 @@ def get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, ou
             continue
         start = offsets[iev]
         end = offsets[iev + 1]
-        
+
         index_to_get = 0
         for ielem in range(start, end):
             if mask_content[ielem]:
@@ -139,6 +158,12 @@ def min_in_offsets_kernel(content, offsets, mask_rows, mask_content, out):
                     accum = content[ielem]
                     first = False
         out[iev] = accum
+
+@numba.jit
+def stack_arrays_kernel(arr, dim):
+    tiled = np.stack(tuple(arr), axis = -1)
+    tiled = np.reshape(tiled, dim)
+    return tiled
         
 def sum_in_offsets(struct, content, mask_rows, mask_content, dtype=None):
     if not dtype:
@@ -165,6 +190,24 @@ def select_muons_opposite_sign(muons, in_mask):
 def get_in_offsets(content, offsets, indices, mask_rows, mask_content):
     out = np.zeros(len(offsets) - 1, dtype=content.dtype)
     get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, out)
+    return out
+
+
+def make_dnn_inputs(content, offsets, nobj, feats, mask_rows, mask_content):
+    
+    out = np.zeros((len(offsets) - 1, nobj, len(feats)), dtype=np.float32)
+    for f in feats:
+        if f == "px":
+            feature = content.pt * np.cos(content.phi)
+        elif f == "py":
+            feature = content.pt * np.sin(content.phi)
+        elif f == "pz":
+            feature = content.pt * np.sinh(content.eta)
+        elif f == "en":
+            feature = np.sqrt(content.mass**2 + (1+np.sinh(content.eta)**2)*content.pt**2)
+        else:
+            feature = getattr(content, f) 
+        dnn_inputs_kernel(feature, offsets, feats.index(f), nobj, mask_rows, mask_content, out)
     return out
 
 """
