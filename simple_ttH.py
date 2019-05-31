@@ -176,6 +176,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         # get control variables
         inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
         leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
+
+        # evaluate dnn
+        jets_feats = ha.make_dnn_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
         import pdb
         pdb.set_trace()
         #leading_lep_pt = ha.maximum(ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons), ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons))
@@ -204,7 +207,6 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         #ret["hist_{0}_genWeights".format(name)] = hist_genWeights
         #ret["hist_leading_lepton_pt"] = hist_leading_lepton_pt
  
-    #TODO: think about how to split up different tt+jets backgrounds
     #TODO: add DNN evaluation
 
     #TODO: implement JECs, btagging, lepton+trigger weights
@@ -228,7 +230,7 @@ if __name__ == "__main__":
    
     #define arrays to load: these are objects that will be kept together 
     arrays_objects = [
-        "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId",
+        "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass",
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge",
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy",
         "TrigObj_pt", "TrigObj_eta", "TrigObj_phi", "TrigObj_id",
