@@ -130,6 +130,13 @@ def dnn_met_kernel(content, feats_indx, mask_rows, out):
 
         out[iev][feats_indx] = content[iev]
 
+@numba.njit(parallel=True)
+def dnn_leps_kernel(content, feats_indx, mask_rows, out):
+    for iev in numba.prange(content.shape[0]-1):
+        if not mask_rows[iev]:
+            continue
+
+        out[iev][0][feats_indx] = content[iev]
     
 @numba.njit(parallel=True)
 def get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, out):
@@ -200,7 +207,7 @@ def get_in_offsets(content, offsets, indices, mask_rows, mask_content):
     get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, out)
     return out
 
-
+# functions preparing inputs for COBRA DNN architecture (not nice, but it works!!!)
 def make_jets_inputs(content, offsets, nobj, feats, mask_rows, mask_content):
     
     out = np.zeros((len(offsets) - 1, nobj, len(feats)), dtype=np.float32)
@@ -218,6 +225,28 @@ def make_jets_inputs(content, offsets, nobj, feats, mask_rows, mask_content):
         dnn_jets_kernel(feature, offsets, feats.index(f), nobj, mask_rows, mask_content, out)
     return out
 
+def make_leps_inputs(electrons, muons, numEvents, feats, mask_rows, el_mask_content, mu_mask_content):
+
+    inds = np.zeros(numEvents, dtype=np.int32)
+
+    feature = {}
+    feature["pt"] = get_in_offsets(muons.pt, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.pt, electrons.offsets, inds, mask_rows, el_mask_content)
+    feature["eta"] = get_in_offsets(muons.eta, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.eta, electrons.offsets, inds, mask_rows, el_mask_content)
+    feature["phi"] = get_in_offsets(muons.phi, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.phi, electrons.offsets, inds, mask_rows, el_mask_content)
+    feature["mass"] = get_in_offsets(muons.mass, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.mass, electrons.offsets, inds, mask_rows, el_mask_content)
+
+    out = np.zeros((numEvents, 1, len(feats)), dtype=np.float32)
+    for f in feats:
+        if f == "px":
+            feature["px"] = feature["pt"] * np.cos(feature["phi"])
+        elif f == "py":
+            feature["py"] = feature["pt"] * np.sin(feature["phi"])
+        elif f == "pz":
+            feature["pz"] = feature["pt"] * np.sinh(feature["eta"])
+        elif f == "en":
+            feature["en"] = np.sqrt(feature["mass"]**2 + (1+np.sinh(feature["eta"])**2)*feature["pt"]**2)
+        dnn_leps_kernel(feature[f], feats.index(f), mask_rows, out)
+    return out
 
 def make_met_inputs(content, numEvents, feats, mask_rows):
 
