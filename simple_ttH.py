@@ -1,6 +1,7 @@
 import os, glob
 os.environ["NUMBAPRO_NVVM"] = "/usr/local/cuda/nvvm/lib64/libnvvm.so"
 os.environ["NUMBAPRO_LIBDEVICE"] = "/usr/local/cuda/nvvm/libdevice/"
+os.environ['KERAS_BACKEND'] = "tensorflow"
 import argparse
 import json
 import numpy as np
@@ -8,6 +9,10 @@ import numpy as np
 import uproot
 import hepaccelerate
 from hepaccelerate.utils import Results, NanoAODDataset, Histogram, choose_backend
+
+from keras.models import load_model
+import itertools
+from losses import mse0,mae0,r2_score0
 
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""
@@ -157,6 +162,21 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         pu_weights = compute_pu_weights(pu_corrections_target, weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
         weights["nominal"] = weights["nominal"] * pu_weights
 
+    # in this section, we calculate all needed variables
+    # get control variables
+    inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
+    leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
+    leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
+
+    # evaluate dnn
+    jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
+    met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
+    leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
+    model = load_model("/work/creissel/MODEL/Mar25/binaryclassifier/model.hdf5", custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
+
+    DNN_pred = model.predict([jets_feats, leps_feats, met_feats])
+
+    # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
     if sample.startswith("TT"):
         ttCls = scalars["genTtbarId"]%100
@@ -171,25 +191,17 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         
     for p in processes.keys():
 
-        mask_events = processes[p]
-
-        # get control variables
-        inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
-        leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
-        leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
-
-        # evaluate dnn
-        jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
-        met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
-        leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
+        mask_events_split = processes[p]
 
         # create histograms filled with weighted events
-        hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,18,19)))
-        hist_nElectrons = Histogram(*ha.histogram_from_vector(nElectrons[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
-        hist_nMuons = Histogram(*ha.histogram_from_vector(nMuons[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
-        hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,10,11)))
-        hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,1000,101)))
-        hist_ttCls = Histogram(*ha.histogram_from_vector(ttCls, NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(0,60,61)))
+        hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,18,19)))
+        hist_nElectrons = Histogram(*ha.histogram_from_vector(nElectrons[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
+        hist_nMuons = Histogram(*ha.histogram_from_vector(nMuons[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
+        hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,10,11)))
+        hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,700,26)))
+        hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,26)))
+        hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,11)))
+        #hist_ttCls = Histogram(*ha.histogram_from_vector(ttCls, NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(0,60,61)))
         #hist_genWeights = Histogram(*ha.histogram_from_vector(scalars["genWeight"][mask_events], NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(-1,1,21)))
         #hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,300,101)))
 
@@ -203,7 +215,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         ret["hist_{0}_nMuons".format(name)] = hist_nMuons
         ret["hist_{0}_nbtags".format(name)] = hist_nbtags
         ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
-        ret["hist_{0}_ttCls".format(name)] = hist_ttCls
+        ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
+        ret["hist_{0}_DNN".format(name)] = hist_DNN
+        #ret["hist_{0}_ttCls".format(name)] = hist_ttCls
         #ret["hist_{0}_genWeights".format(name)] = hist_genWeights
         #ret["hist_leading_lepton_pt"] = hist_leading_lepton_pt
  
