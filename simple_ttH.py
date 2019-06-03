@@ -194,13 +194,14 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         mask_events_split = processes[p]
 
         # create histograms filled with weighted events
-        hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,18,19)))
-        hist_nElectrons = Histogram(*ha.histogram_from_vector(nElectrons[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
-        hist_nMuons = Histogram(*ha.histogram_from_vector(nMuons[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
-        hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,10,11)))
-        hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,700,26)))
-        hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,26)))
-        hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,11)))
+        hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,14,15)))
+        #hist_nElectrons = Histogram(*ha.histogram_from_vector(nElectrons[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
+        #hist_nMuons = Histogram(*ha.histogram_from_vector(nMuons[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
+        hist_nleps = Histogram(*ha.histogram_from_vector((nMuons+nElectrons)[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
+        hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,8,9)))
+        hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,31)))
+        hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,31)))
+        hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
         #hist_ttCls = Histogram(*ha.histogram_from_vector(ttCls, NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(0,60,61)))
         #hist_genWeights = Histogram(*ha.histogram_from_vector(scalars["genWeight"][mask_events], NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(-1,1,21)))
         #hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,300,101)))
@@ -211,8 +212,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
             name = p   
  
         ret["hist_{0}_njets".format(name)] = hist_njets
-        ret["hist_{0}_nElectrons".format(name)] = hist_nElectrons
-        ret["hist_{0}_nMuons".format(name)] = hist_nMuons
+        #ret["hist_{0}_nElectrons".format(name)] = hist_nElectrons
+        #ret["hist_{0}_nMuons".format(name)] = hist_nMuons
+        ret["hist_{0}_nleps".format(name)] = hist_nleps
         ret["hist_{0}_nbtags".format(name)] = hist_nbtags
         ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
         ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
