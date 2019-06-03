@@ -7,7 +7,8 @@ import math
 def searchsorted_devfunc(arr, val):
     ret = -1
     for i in range(len(arr)):
-        if val <= arr[i]:
+        #if val <= arr[i]:
+        if val < arr[i+1]:
             ret = i
             break
     return ret
