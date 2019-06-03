@@ -176,15 +176,13 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         # get control variables
         inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
         leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
+        leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
 
         # evaluate dnn
         jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
         met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
+        leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
 
-        import pdb
-        pdb.set_trace()
-        #leading_lep_pt = ha.maximum(ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons), ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons))
- 
         # create histograms filled with weighted events
         hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,18,19)))
         hist_nElectrons = Histogram(*ha.histogram_from_vector(nElectrons[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
