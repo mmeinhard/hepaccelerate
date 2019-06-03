@@ -105,7 +105,7 @@ def min_in_offsets_kernel(content, offsets, mask_rows, mask_content, out):
         out[iev] = accum
 
 @numba.njit(parallel=True)
-def dnn_inputs_kernel(content, offsets, feats_indx, nobj, mask_rows, mask_content, out):
+def dnn_jets_kernel(content, offsets, feats_indx, nobj, mask_rows, mask_content, out):
     for iev in numba.prange(offsets.shape[0]-1):
         if not mask_rows[iev]:
             continue
@@ -121,6 +121,14 @@ def dnn_inputs_kernel(content, offsets, feats_indx, nobj, mask_rows, mask_conten
                         break
                     else:
                         index_to_get += 1
+
+@numba.njit(parallel=True)
+def dnn_met_kernel(content, feats_indx, mask_rows, out):
+    for iev in numba.prange(content.shape[0]-1):
+        if not mask_rows[iev]:
+            continue
+
+        out[iev][feats_indx] = content[iev]
 
     
 @numba.njit(parallel=True)
@@ -193,7 +201,7 @@ def get_in_offsets(content, offsets, indices, mask_rows, mask_content):
     return out
 
 
-def make_dnn_inputs(content, offsets, nobj, feats, mask_rows, mask_content):
+def make_jets_inputs(content, offsets, nobj, feats, mask_rows, mask_content):
     
     out = np.zeros((len(offsets) - 1, nobj, len(feats)), dtype=np.float32)
     for f in feats:
@@ -207,7 +215,21 @@ def make_dnn_inputs(content, offsets, nobj, feats, mask_rows, mask_content):
             feature = np.sqrt(content.mass**2 + (1+np.sinh(content.eta)**2)*content.pt**2)
         else:
             feature = getattr(content, f) 
-        dnn_inputs_kernel(feature, offsets, feats.index(f), nobj, mask_rows, mask_content, out)
+        dnn_jets_kernel(feature, offsets, feats.index(f), nobj, mask_rows, mask_content, out)
+    return out
+
+
+def make_met_inputs(content, numEvents, feats, mask_rows):
+
+    out = np.zeros((numEvents, len(feats)), dtype=np.float32)
+    for f in feats:
+        if f == "px":
+            feature = content["MET_pt"] * np.cos(content["MET_phi"])
+        elif f == "py":
+            feature = content["MET_pt"] * np.sin(content["MET_phi"])
+        else:
+            feature = content["MET_" + f]
+        dnn_met_kernel(feature, feats.index(f), mask_rows, out)
     return out
 
 """
