@@ -108,7 +108,7 @@ def remove_inf_nan(arr):
 
 
 #This function will be called for every file in the dataset
-def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True):
+def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, add_DNN=False, DNN_model=None):
     #Output structure that will be returned and added up among the files.
     #Should be relatively small.
     ret = Results()
@@ -171,27 +171,23 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
     leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
 
-    import time
-    before_feats = time.time()
-    # evaluate dnn
-    jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
-    met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
-    leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
-    after_feats = time.time()
+    if add_DNN:
+        import time
+        before_feats = time.time()
+        # evaluate dnn
+        jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
+        met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
+        leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
+        after_feats = time.time()
 
-    print("time needed to prepare feats:", (after_feats - before_feats))
-    model = load_model("/work/creissel/MODEL/Mar25/binaryclassifier/model.hdf5", custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
-    after_load = time.time()
-    print("time needed to load model:", (after_load - after_feats))
-
-    if not isinstance(jets_feats, np.ndarray):
-        print("cupy type array")
-        DNN_pred = model.predict([NUMPY_LIB.asnumpy(jets_feats), NUMPY_LIB.asnumpy(leps_feats), NUMPY_LIB.asnumpy(met_feats)])
-    else:
-        print("numpy type array")
-        DNN_pred = model.predict([jets_feats, leps_feats, met_feats])
-    after_model = time.time()
-    print("time needed to pred model:", (after_model - after_load))
+        if not isinstance(jets_feats, np.ndarray):
+            DNN_pred = NUMPY_LIB.array(DNN_model.predict([NUMPY_LIB.asnumpy(jets_feats), NUMPY_LIB.asnumpy(leps_feats), NUMPY_LIB.asnumpy(met_feats)]))
+            #DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
+        else:
+            DNN_pred = DNN_model.predict([jets_feats, leps_feats, met_feats])
+        DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
+        after_model = time.time()
+        print("time needed to pred model:", (after_model - after_feats))
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
@@ -218,7 +214,10 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,8,9)))
         hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,31)))
         hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,31)))
-        #hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
+
+        if add_DNN:
+            #hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
+            hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
         #hist_ttCls = Histogram(*ha.histogram_from_vector(ttCls, NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(0,60,61)))
         #hist_genWeights = Histogram(*ha.histogram_from_vector(scalars["genWeight"][mask_events], NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(-1,1,21)))
         #hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,300,101)))
@@ -229,20 +228,14 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
             name = p   
  
         ret["hist_{0}_njets".format(name)] = hist_njets
-        #ret["hist_{0}_nElectrons".format(name)] = hist_nElectrons
-        #ret["hist_{0}_nMuons".format(name)] = hist_nMuons
         ret["hist_{0}_nleps".format(name)] = hist_nleps
         ret["hist_{0}_nbtags".format(name)] = hist_nbtags
         ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
         ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
-        #ret["hist_{0}_DNN".format(name)] = hist_DNN
-        #ret["hist_{0}_ttCls".format(name)] = hist_ttCls
-        #ret["hist_{0}_genWeights".format(name)] = hist_genWeights
-        #ret["hist_leading_lepton_pt"] = hist_leading_lepton_pt
+        
+        if add_DNN:
+            ret["hist_{0}_DNN".format(name)] = hist_DNN
  
-    #TODO: add DNN evaluation on GPU
-    #TODO: check normalization issue
-
     #TODO: implement JECs, btagging, lepton+trigger weights
 
     return ret
@@ -256,6 +249,7 @@ if __name__ == "__main__":
     parser.add_argument('--cache-location', action='store', help='Path prefix for the cache, must be writable', type=str, default=os.path.join(os.getcwd(), 'cache'))
     parser.add_argument('--filelist', action='store', help='List of files to load', type=str, default=None, required=False)
     parser.add_argument('--sample', action='store', help='sample name', type=str, default=None, required=True)
+    parser.add_argument('--evaluate-DNN', action='store_true', help='run DNN evaluation for all events')
     parser.add_argument('filenames', nargs=argparse.REMAINDER)
     args = parser.parse_args()
  
@@ -393,8 +387,14 @@ if __name__ == "__main__":
             print(dataset.printout())
 
         #Run the analyze_data function on all files
-        results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info)
-            
+        if args.evaluate_DNN:
+            model = load_model("/work/creissel/MODEL/Mar25/binaryclassifier/model.hdf5", custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
+                        
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info, add_DNN=True, DNN_model=model)
+           
+        else:
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info, add_DNN=False, DNN_model=None)
+             
     print(results)
     #print("Efficiency of dimuon events: {0:.2f}".format(results["events_dimuon"]/results["num_events"]))
     
