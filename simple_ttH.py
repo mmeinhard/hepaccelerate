@@ -1,7 +1,7 @@
 import os, glob
 os.environ["NUMBAPRO_NVVM"] = "/usr/local/cuda/nvvm/lib64/libnvvm.so"
 os.environ["NUMBAPRO_LIBDEVICE"] = "/usr/local/cuda/nvvm/libdevice/"
-os.environ['KERAS_BACKEND'] = "tensorflow"
+#os.environ['KERAS_BACKEND'] = "tensorflow"
 import argparse
 import json
 import numpy as np
@@ -123,6 +123,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     # prepare event cuts
     mask_events = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.bool)
+    print("Before all cuts:", mask_events.sum())
 
     # apply event cleaning, PV selection and trigger selection
     flags = [
@@ -130,12 +131,13 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     for flag in flags:
         mask_events = mask_events & scalars[flag]
     trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu24_eta2p1"] | scalars["HLT_IsoMu27"]) 
-    mask_events = mask_events & trigger & scalars["PV_npvsGood"]>0
+    mask_events = mask_events & trigger 
+    mask_events = mask_events & scalars["PV_npvsGood"]>0
     
     # apply object selection for muons, electrons, jets
     good_muons, veto_muons = lepton_selection(muons, parameters["muons"])
     good_electrons, veto_electrons = lepton_selection(electrons, parameters["electrons"])
-    good_jets = jet_selection(jets, muons, good_muons, parameters["jets"]) & jet_selection(jets, electrons, good_electrons, parameters["jets"])
+    good_jets = jet_selection(jets, muons, veto_muons, parameters["jets"]) & jet_selection(jets, electrons, veto_electrons, parameters["jets"])
     bjets = good_jets & (jets.btagDeepB > 0.4941)
 
     # apply event selection
@@ -147,6 +149,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     mask_events = mask_events & SL & lepton_veto & (njets >= 4) & (btags >=2) & met
 
+    njets_wo_cuts = ha.sum_in_offsets(jets, NUMPY_LIB.ones(jets.numobjects(), dtype=NUMPY_LIB.bool), mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
     # further variables
     nMuons = ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8)
@@ -168,13 +171,27 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
     leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
 
+    import time
+    before_feats = time.time()
     # evaluate dnn
     jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
     met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
     leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
-    model = load_model("/work/creissel/MODEL/Mar25/binaryclassifier/model.hdf5", custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
+    after_feats = time.time()
 
-    DNN_pred = model.predict([jets_feats, leps_feats, met_feats])
+    print("time needed to prepare feats:", (after_feats - before_feats))
+    model = load_model("/work/creissel/MODEL/Mar25/binaryclassifier/model.hdf5", custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
+    after_load = time.time()
+    print("time needed to load model:", (after_load - after_feats))
+
+    if not isinstance(jets_feats, np.ndarray):
+        print("cupy type array")
+        DNN_pred = model.predict([NUMPY_LIB.asnumpy(jets_feats), NUMPY_LIB.asnumpy(leps_feats), NUMPY_LIB.asnumpy(met_feats)])
+    else:
+        print("numpy type array")
+        DNN_pred = model.predict([jets_feats, leps_feats, met_feats])
+    after_model = time.time()
+    print("time needed to pred model:", (after_model - after_load))
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
@@ -201,7 +218,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,8,9)))
         hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,31)))
         hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,31)))
-        hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
+        #hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
         #hist_ttCls = Histogram(*ha.histogram_from_vector(ttCls, NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(0,60,61)))
         #hist_genWeights = Histogram(*ha.histogram_from_vector(scalars["genWeight"][mask_events], NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(-1,1,21)))
         #hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,300,101)))
@@ -218,12 +235,13 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         ret["hist_{0}_nbtags".format(name)] = hist_nbtags
         ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
         ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
-        ret["hist_{0}_DNN".format(name)] = hist_DNN
+        #ret["hist_{0}_DNN".format(name)] = hist_DNN
         #ret["hist_{0}_ttCls".format(name)] = hist_ttCls
         #ret["hist_{0}_genWeights".format(name)] = hist_genWeights
         #ret["hist_leading_lepton_pt"] = hist_leading_lepton_pt
  
-    #TODO: add DNN evaluation
+    #TODO: add DNN evaluation on GPU
+    #TODO: check normalization issue
 
     #TODO: implement JECs, btagging, lepton+trigger weights
 
@@ -298,6 +316,16 @@ if __name__ == "__main__":
         },
         "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 365.45736135,
+        },
+        "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8" : {
+            "process" : "ttHToNonbb",
+            "XS" : 0.2150955,
+        },
+        "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8" : {
+            "XS" : 88.341903326,
+        },
+        "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8" : {
+            "XS" : 377.9607353256,
         }
     }
 
@@ -306,6 +334,8 @@ if __name__ == "__main__":
         filenames = [l.strip() for l in open(args.filelist).readlines()]
     else:
         filenames = args.filenames
+
+    print(filenames)
 
     for fn in filenames:
         if not fn.endswith(".root"):
@@ -318,6 +348,8 @@ if __name__ == "__main__":
         dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", ["Jet", "Muon", "Electron","TrigObj"], arrays_event)
         dataset.get_cache_dir = lambda fn,loc=args.cache_location: os.path.join(loc, fn)
 
+        print(args.cache_location)
+
         if not args.from_cache:
             #Load data from ROOT files
             dataset.preload(nthreads=args.nthreads, verbose=True)
@@ -325,9 +357,13 @@ if __name__ == "__main__":
             #prepare the object arrays on the host or device
             dataset.make_objects()
 
+            with open("samples_info.json", "r") as jsonFile:
+                samples_info = json.load(jsonFile)
+
             samples_info[args.sample]["ngen_weight"] = count_weighted(filenames)
-            with open("samples_info.json", "w") as conf_file:
-                json.dump(samples_info, conf_file)   
+
+            with open("samples_info.json", "w") as jsonFile:
+                json.dump(samples_info, jsonFile)
 
             print("preparing dataset cache")
             #save arrays for future use in cache
@@ -337,10 +373,21 @@ if __name__ == "__main__":
         else:
             print("loading dataset from cache")
             dataset.from_cache(verbose=True, nthreads=args.nthreads)
+
             
-            with open("samples_info.json") as json_file:
-                settings = json.load(json_file)
-            samples_info[args.sample]["ngen_weight"] = settings[args.sample]["ngen_weight"]
+            if args.use_cuda:
+                with open("samples_info.json") as json_file:
+                    settings = json.load(json_file)
+                    samples_info[args.sample]["ngen_weight"] = settings[args.sample]["ngen_weight"]
+            else:
+                with open("samples_info.json", "r") as jsonFile:
+                    samples_info = json.load(jsonFile)
+
+                samples_info[args.sample]["ngen_weight"] = count_weighted(filenames)
+
+                with open("samples_info.json", "w") as jsonFile:
+                    json.dump(samples_info, jsonFile)
+
 
         if ibatch == 0:
             print(dataset.printout())

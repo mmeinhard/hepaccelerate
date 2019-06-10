@@ -120,7 +120,7 @@ def calc_px_cudakernel(content_pt, content_phi, out):
     xstride = cuda.gridsize(1)
 
     for iobj in range(xi, content_pt.shape[0]-1, xstride):
-        out[iobj] = content_pt[iobj] * np.cos(content_phi[iobj])
+        out[iobj] = content_pt[iobj] * math.cos(content_phi[iobj])
 
 @cuda.jit
 def calc_py_cudakernel(content_pt, content_phi, out):
@@ -128,7 +128,7 @@ def calc_py_cudakernel(content_pt, content_phi, out):
     xstride = cuda.gridsize(1)
 
     for iobj in range(xi, content_pt.shape[0]-1, xstride):
-        out[iobj] = content_pt[iobj] * np.sin(content_phi[iobj])
+        out[iobj] = content_pt[iobj] * math.sin(content_phi[iobj])
 
 @cuda.jit
 def calc_pz_cudakernel(content_pt, content_eta, out):
@@ -136,7 +136,7 @@ def calc_pz_cudakernel(content_pt, content_eta, out):
     xstride = cuda.gridsize(1)
 
     for iobj in range(xi, content_pt.shape[0]-1, xstride):
-        out[iobj] = content_pt[iobj] * np.sinh(content_eta[iobj])
+        out[iobj] = content_pt[iobj] * math.sinh(content_eta[iobj])
 
 @cuda.jit
 def calc_en_cudakernel(content_pt, content_eta, content_mass, out):
@@ -144,7 +144,7 @@ def calc_en_cudakernel(content_pt, content_eta, content_mass, out):
     xstride = cuda.gridsize(1)
 
     for iobj in range(xi, content_pt.shape[0]-1, xstride):
-        out[iobj] = np.sqrt(content_mass[iobj]**2 + (1+np.sinh(content_eta[iobj])**2)*content_pt[iobj]**2)
+        out[iobj] = math.sqrt(content_mass[iobj]**2 + (1+math.sinh(content_eta[iobj])**2)*content_pt[iobj]**2)
 
 @cuda.jit
 def dnn_jets_cudakernel(content, offsets, feats_indx, nobj, mask_rows, mask_content, out):
@@ -373,25 +373,25 @@ def get_bin_contents(values, edges, contents, out):
 
 def calc_px(content_pt, content_phi):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
-    calc_px_kernel(content_pt, content_phi, out)
+    calc_px_cudakernel(content_pt, content_phi, out)
     cuda.synchronize()
     return out
 
 def calc_py(content_pt, content_phi):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
-    calc_py_kernel(content_pt, content_phi, out)
+    calc_py_cudakernel(content_pt, content_phi, out)
     cuda.synchronize()
     return out
 
 def calc_pz(content_pt, content_eta):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
-    calc_pz_kernel(content_pt, content_eta, out)
+    calc_pz_cudakernel(content_pt, content_eta, out)
     cuda.synchronize()
     return out
 
 def calc_en(content_pt, content_eta, content_mass):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
-    calc_en_kernel(content_pt, content_eta, content_mass, out)
+    calc_en_cudakernel(content_pt, content_eta, content_mass, out)
     cuda.synchronize()
     return out
 
@@ -410,7 +410,7 @@ def make_jets_inputs(content, offsets, nobj, feats, mask_rows, mask_content):
             feature = calc_en(content.pt, content.eta, content.mass)
         else:
             feature = getattr(content, f)
-        dnn_jets_kernel(feature, offsets, feats.index(f), nobj, mask_rows, mask_content, out)
+        dnn_jets_cudakernel(feature, offsets, feats.index(f), nobj, mask_rows, mask_content, out)
     cuda.synchronize()
     return out
 
@@ -434,7 +434,7 @@ def make_leps_inputs(electrons, muons, numEvents, feats, mask_rows, el_mask_cont
             feature["pz"] = calc_pz(feature["pt"], feature["eta"])
         elif f == "en":
             feature["en"] = calc_en(feature["pt"], feature["eta"], feature["mass"])
-        dnn_leps_kernel(feature[f], feats.index(f), mask_rows, out)
+        dnn_leps_cudakernel(feature[f], feats.index(f), mask_rows, out)
     cuda.synchronize()
     return out
 
@@ -448,7 +448,7 @@ def make_met_inputs(content, numEvents, feats, mask_rows):
             feature = calc_py(content["MET_pt"], content["MET_phi"])
         else:
             feature = content["MET_" + f]
-        dnn_met_kernel(feature, feats.index(f), mask_rows, out)
+        dnn_met_cudakernel(feature, feats.index(f), mask_rows, out)
     cuda.synchronize()
     return out
 
