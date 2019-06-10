@@ -12,6 +12,6 @@
 
 echo "start running python script"
 
-python simple_ttH.py --filelist /work/creissel/GPUanalysis/hepaccelerate/test_bkg.txt --sample TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8 --use-cuda --from-cache
+python3 simple_ttH.py --filelist test.txt --sample ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8 --from-cache --evaluate-DNN --use-cuda
 
 echo "done"
