@@ -50,7 +50,10 @@ def jet_selection(jets, leps, mask_leps, cuts):
 
     jets_pass_dr = ha.mask_deltar_first(jets, jets.masks["all"], leps, mask_leps, cuts["dr"])
     jets.masks["pass_dr"] = jets_pass_dr
-    good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & (jets.puId>=cuts["puId"]) & jets_pass_dr
+    if "puId" in cuts.keys(): # FatJets have no puId
+      good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & (jets.puId>=cuts["puId"]) & jets_pass_dr
+    else:
+      good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"])& jets_pass_dr
 
     return good_jets
 
@@ -108,7 +111,7 @@ def remove_inf_nan(arr):
 
 
 #This function will be called for every file in the dataset
-def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, add_DNN=False, DNN_model=None):
+def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, boosted=False, add_DNN=False, DNN_model=None):
     #Output structure that will be returned and added up among the files.
     #Should be relatively small.
     ret = Results()
@@ -118,6 +121,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     electrons = data["Electron"]
     scalars = data["eventvars"]
     jets = data["Jet"]
+    if boosted:
+      fatjets = data["FatJet"]
 
     nEvents = muons.numevents()
 
@@ -140,6 +145,10 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     good_jets = jet_selection(jets, muons, veto_muons, parameters["jets"]) & jet_selection(jets, electrons, veto_electrons, parameters["jets"])
     bjets = good_jets & (jets.btagDeepB > 0.4941)
 
+    if boosted:
+      good_fatjets = jet_selection(fatjets, muons, good_muons, parameters["fatjets"]) & jet_selection(fatjets, electrons, good_electrons, parameters["fatjets"])
+      bfatjets = good_fatjets & (fatjets.btagHbb > .8) # Higgs to BB tagger discriminator, working point medium2
+
     # apply event selection
     SL = (ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8) == 1) ^ (ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8) == 1)
     lepton_veto = (ha.sum_in_offsets(muons, veto_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8) < 1) & (ha.sum_in_offsets(electrons, veto_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8) < 1)  
@@ -147,7 +156,11 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     met = (scalars["MET_pt"] > 20)
 
-    mask_events = mask_events & SL & lepton_veto & (njets >= 4) & (btags >=2) & met
+    if boosted:
+      bbtags = ha.sum_in_offsets(fatjets, bfatjets, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
+      mask_events = mask_events & SL & lepton_veto & (njets >= 4) & (btags >=2) & met & (bbtags >=1)
+    else:
+      mask_events = mask_events & SL & lepton_veto & (njets >= 4) & (btags >=2) & met
 
     njets_wo_cuts = ha.sum_in_offsets(jets, NUMPY_LIB.ones(jets.numobjects(), dtype=NUMPY_LIB.bool), mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
@@ -170,6 +183,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
     leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
     leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
+    if boosted:
+      leading_fatjet_pt = ha.get_in_offsets(fatjets.pt, fatjets.offsets, inds, mask_events, good_fatjets)
 
     if add_DNN:
         import time
@@ -178,6 +193,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
         met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
         leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
+        if boosted:
+            fatjets_feats = ha.make_fatjets_inputs(fatjets, fatjets.offsets, 4, ["pt","eta","phi","en","px","py","pz","btagHbb"], mask_events, good_fatjets)
         after_feats = time.time()
 
         if not isinstance(jets_feats, np.ndarray):
@@ -188,6 +205,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
         after_model = time.time()
         print("time needed to pred model:", (after_model - after_feats))
+
+#TODO DANIELE: add fatjet below
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
@@ -218,10 +237,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         if add_DNN:
             #hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
             hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
-        #hist_ttCls = Histogram(*ha.histogram_from_vector(ttCls, NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(0,60,61)))
-        #hist_genWeights = Histogram(*ha.histogram_from_vector(scalars["genWeight"][mask_events], NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(-1,1,21)))
-        #hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,300,101)))
-
+        
         if p=="unsplit":
             name = samples_info[sample]["process"]
         else:
@@ -250,6 +266,7 @@ if __name__ == "__main__":
     parser.add_argument('--filelist', action='store', help='List of files to load', type=str, default=None, required=False)
     parser.add_argument('--sample', action='store', help='sample name', type=str, default=None, required=True)
     parser.add_argument('--evaluate-DNN', action='store_true', help='run DNN evaluation for all events')
+    parser.add_argument('--boosted', action='store_true', help='Flag to include boosted objects', default=False) 
     parser.add_argument('filenames', nargs=argparse.REMAINDER)
     args = parser.parse_args()
  
@@ -263,6 +280,9 @@ if __name__ == "__main__":
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy",
         "TrigObj_pt", "TrigObj_eta", "TrigObj_phi", "TrigObj_id",
     ]
+    if args.boosted:
+      arrays_objects += [ "FatJet_pt", "FatJet_eta", "FatJet_phi", "FatJet_btagHbb", "FatJet_jetId", "FatJet_mass" ]
+
     #these are variables per event
     arrays_event = [
         "PV_npvsGood", "Pileup_nTrueInt",
@@ -303,6 +323,14 @@ if __name__ == "__main__":
         "lumi":  41529.0,
     }
 
+    if args.boosted:
+      parameters["fatjets"] = {
+          "dr": .8,
+          "pt": 200,
+          "eta": 2.4,
+          "jetId": 2,
+          }
+
     samples_info = {
         "ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8" : {
             "process" : "ttHTobb",
@@ -339,7 +367,10 @@ if __name__ == "__main__":
     results = Results()
     for ibatch, files_in_batch in enumerate(chunks(filenames, args.files_per_batch)): 
         #define our dataset
-        dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", ["Jet", "Muon", "Electron","TrigObj"], arrays_event)
+        if args.boosted:
+          dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", ["Jet", "Muon", "Electron","TrigObj", "FatJet"], arrays_event)
+        else:
+          dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", ["Jet", "Muon", "Electron","TrigObj"], arrays_event)
         dataset.get_cache_dir = lambda fn,loc=args.cache_location: os.path.join(loc, fn)
 
         print(args.cache_location)
@@ -390,10 +421,10 @@ if __name__ == "__main__":
         if args.evaluate_DNN:
             model = load_model("/work/creissel/MODEL/Mar25/binaryclassifier/model.hdf5", custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
                         
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info, add_DNN=True, DNN_model=model)
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info, boosted=args.boosted, add_DNN=True, DNN_model=model)
            
         else:
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info, add_DNN=False, DNN_model=None)
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info, boosted=args.boosted, add_DNN=False, DNN_model=None)
              
     print(results)
     #print("Efficiency of dimuon events: {0:.2f}".format(results["events_dimuon"]/results["num_events"]))
