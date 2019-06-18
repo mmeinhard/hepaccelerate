@@ -1,7 +1,7 @@
 import os, glob
-os.environ["NUMBAPRO_NVVM"] = "/usr/local/cuda/nvvm/lib64/libnvvm.so"
-os.environ["NUMBAPRO_LIBDEVICE"] = "/usr/local/cuda/nvvm/libdevice/"
-#os.environ['KERAS_BACKEND'] = "tensorflow"
+#os.environ["NUMBAPRO_NVVM"] = "/usr/local/cuda/nvvm/lib64/libnvvm.so"
+#os.environ["NUMBAPRO_LIBDEVICE"] = "/usr/local/cuda/nvvm/libdevice/"
+os.environ['KERAS_BACKEND'] = "tensorflow"
 import argparse
 import json
 import numpy as np
@@ -10,9 +10,13 @@ import uproot
 import hepaccelerate
 from hepaccelerate.utils import Results, NanoAODDataset, Histogram, choose_backend
 
+import tensorflow as tf
 from keras.models import load_model
 import itertools
 from losses import mse0,mae0,r2_score0
+
+
+from fnal_column_analysis_tools.lumi_tools import LumiMask, LumiData
 
 def chunks(l, n):
     """Yield successive n-sized chunks from l."""
@@ -108,7 +112,7 @@ def remove_inf_nan(arr):
 
 
 #This function will be called for every file in the dataset
-def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, add_DNN=False, DNN_model=None):
+def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, lumimask=None, add_DNN=False, DNN_model=None):
     #Output structure that will be returned and added up among the files.
     #Should be relatively small.
     ret = Results()
@@ -123,14 +127,15 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     # prepare event cuts
     mask_events = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.bool)
-    print("Before all cuts:", mask_events.sum())
 
     # apply event cleaning, PV selection and trigger selection
     flags = [
-        "Flag_goodVertices", "Flag_globalSuperTightHalo2016Filter", "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter", "Flag_eeBadScFilter", "Flag_ecalBadCalibFilter"]
+        "Flag_goodVertices", "Flag_globalSuperTightHalo2016Filter", "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter", "Flag_ecalBadCalibFilter"]
+    if not is_mc:
+        flags.append("Flag_eeBadScFilter")
     for flag in flags:
         mask_events = mask_events & scalars[flag]
-    trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu24_eta2p1"] | scalars["HLT_IsoMu27"]) 
+    trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu27"]) 
     mask_events = mask_events & trigger 
     mask_events = mask_events & scalars["PV_npvsGood"]>0
     
@@ -141,19 +146,15 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     bjets = good_jets & (jets.btagDeepB > 0.4941)
 
     # apply event selection
-    SL = (ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8) == 1) ^ (ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8) == 1)
-    lepton_veto = (ha.sum_in_offsets(muons, veto_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8) < 1) & (ha.sum_in_offsets(electrons, veto_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8) < 1)  
+    nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
+
+    #SL = (ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8) == 1) ^ (ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8) == 1)
+    lepton_veto = NUMPY_LIB.add(ha.sum_in_offsets(muons, veto_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, veto_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
     njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     met = (scalars["MET_pt"] > 20)
 
-    mask_events = mask_events & SL & lepton_veto & (njets >= 4) & (btags >=2) & met
-
-    njets_wo_cuts = ha.sum_in_offsets(jets, NUMPY_LIB.ones(jets.numobjects(), dtype=NUMPY_LIB.bool), mask_events, jets.masks["all"], NUMPY_LIB.int8)
-
-    # further variables
-    nMuons = ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8)
-    nElectrons = ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8)
+    mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=3) & met
 
     # calculate weights for MC samples
     weights = {}
@@ -164,6 +165,11 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         pu_corrections_target = load_puhist_target("data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root")
         pu_weights = compute_pu_weights(pu_corrections_target, weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
         weights["nominal"] = weights["nominal"] * pu_weights
+
+    #in case of data: check if event is in golden lumi file
+    if not is_mc and not (lumimask is None):
+        mask_lumi = lumimask(scalars["run"], scalars["luminosityBlock"])
+        mask_events = mask_events & mask_lumi
 
     # in this section, we calculate all needed variables
     # get control variables
@@ -181,6 +187,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         after_feats = time.time()
 
         if not isinstance(jets_feats, np.ndarray):
+            print(tf.__version__)
             DNN_pred = NUMPY_LIB.array(DNN_model.predict([NUMPY_LIB.asnumpy(jets_feats), NUMPY_LIB.asnumpy(leps_feats), NUMPY_LIB.asnumpy(met_feats)]))
             #DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
         else:
@@ -208,22 +215,19 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
         # create histograms filled with weighted events
         hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,14,15)))
-        #hist_nElectrons = Histogram(*ha.histogram_from_vector(nElectrons[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
-        #hist_nMuons = Histogram(*ha.histogram_from_vector(nMuons[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
-        hist_nleps = Histogram(*ha.histogram_from_vector((nMuons+nElectrons)[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,3,4)))
+        hist_nleps = Histogram(*ha.histogram_from_vector(nleps[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,10,11)))
         hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,8,9)))
         hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,31)))
         hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0,500,31)))
 
         if add_DNN:
-            #hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split, 0], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
             hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split], weights["nominal"], NUMPY_LIB.linspace(0.,1.,16)))
-        #hist_ttCls = Histogram(*ha.histogram_from_vector(ttCls, NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(0,60,61)))
-        #hist_genWeights = Histogram(*ha.histogram_from_vector(scalars["genWeight"][mask_events], NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32), NUMPY_LIB.linspace(-1,1,21)))
-        #hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events], weights["nominal"], NUMPY_LIB.linspace(0,300,101)))
 
         if p=="unsplit":
-            name = samples_info[sample]["process"]
+            if "Run" in sample:
+                name = "data"
+            else:
+                name = samples_info[sample]["process"]
         else:
             name = p   
  
@@ -255,7 +259,15 @@ if __name__ == "__main__":
  
     NUMPY_LIB, ha = choose_backend(args.use_cuda)
     NanoAODDataset.numpy_lib = NUMPY_LIB
-   
+
+    if "Run" in args.sample:
+        is_mc = False
+        lumimask = LumiMask("data/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON.txt") 
+    else:
+        is_mc = True
+        lumimask = None  
+
+ 
     #define arrays to load: these are objects that will be kept together 
     arrays_objects = [
         "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass",
@@ -265,17 +277,19 @@ if __name__ == "__main__":
     ]
     #these are variables per event
     arrays_event = [
-        "PV_npvsGood", "Pileup_nTrueInt",
+        "PV_npvsGood",
         "Flag_goodVertices", "Flag_globalSuperTightHalo2016Filter", "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter", "Flag_eeBadScFilter", "Flag_ecalBadCalibFilter",
         "HLT_Ele35_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150",
         "HLT_IsoMu24_eta2p1", "HLT_IsoMu27",
         "MET_pt", "MET_phi", "MET_sumEt",
-        "genWeight",
         "run", "luminosityBlock", "event"
     ]
 
     if args.sample.startswith("TT"):
         arrays_event.append("genTtbarId")
+
+    if not "Run" in args.sample:
+        arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight"]  
 
     parameters = {
         "muons": {
@@ -329,7 +343,7 @@ if __name__ == "__main__":
     else:
         filenames = args.filenames
 
-    print(filenames)
+    print("Number of files:", len(filenames))
 
     for fn in filenames:
         if not fn.endswith(".root"):
@@ -337,12 +351,22 @@ if __name__ == "__main__":
             raise Exception("Must supply ROOT filename, but got {0}".format(fn))
 
     results = Results()
+
+    if is_mc and not args.use_cuda:
+        with open("samples_info.json", "r") as jsonFile:
+            samples_info = json.load(jsonFile)
+
+        samples_info[args.sample]["ngen_weight"] = count_weighted(filenames)
+
+        print("Sum of events (weighted by generator weight:)", samples_info[args.sample]["ngen_weight"])
+        with open("samples_info.json", "w") as jsonFile:
+            json.dump(samples_info, jsonFile)
+
+
     for ibatch, files_in_batch in enumerate(chunks(filenames, args.files_per_batch)): 
         #define our dataset
         dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", ["Jet", "Muon", "Electron","TrigObj"], arrays_event)
         dataset.get_cache_dir = lambda fn,loc=args.cache_location: os.path.join(loc, fn)
-
-        print(args.cache_location)
 
         if not args.from_cache:
             #Load data from ROOT files
@@ -350,14 +374,6 @@ if __name__ == "__main__":
 
             #prepare the object arrays on the host or device
             dataset.make_objects()
-
-            with open("samples_info.json", "r") as jsonFile:
-                samples_info = json.load(jsonFile)
-
-            samples_info[args.sample]["ngen_weight"] = count_weighted(filenames)
-
-            with open("samples_info.json", "w") as jsonFile:
-                json.dump(samples_info, jsonFile)
 
             print("preparing dataset cache")
             #save arrays for future use in cache
@@ -373,15 +389,6 @@ if __name__ == "__main__":
                 with open("samples_info.json") as json_file:
                     settings = json.load(json_file)
                     samples_info[args.sample]["ngen_weight"] = settings[args.sample]["ngen_weight"]
-            else:
-                with open("samples_info.json", "r") as jsonFile:
-                    samples_info = json.load(jsonFile)
-
-                samples_info[args.sample]["ngen_weight"] = count_weighted(filenames)
-
-                with open("samples_info.json", "w") as jsonFile:
-                    json.dump(samples_info, jsonFile)
-
 
         if ibatch == 0:
             print(dataset.printout())
@@ -390,10 +397,10 @@ if __name__ == "__main__":
         if args.evaluate_DNN:
             model = load_model("/work/creissel/MODEL/Mar25/binaryclassifier/model.hdf5", custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
                         
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info, add_DNN=True, DNN_model=model)
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, sample=args.sample, samples_info=samples_info, add_DNN=True, DNN_model=model)
            
         else:
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = True, sample=args.sample, samples_info=samples_info, add_DNN=False, DNN_model=None)
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, sample=args.sample, samples_info=samples_info, add_DNN=False, DNN_model=None)
              
     print(results)
     #print("Efficiency of dimuon events: {0:.2f}".format(results["events_dimuon"]/results["num_events"]))
