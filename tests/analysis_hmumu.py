@@ -2,38 +2,110 @@ import glob
 import time
 import numpy
 import os
+os.environ["NUMBAPRO_NVVM"] = "/usr/local/cuda/nvvm/lib64/libnvvm.so"
+os.environ["NUMBAPRO_LIBDEVICE"] = "/usr/local/cuda/nvvm/libdevice/"
+
+import numba
+
+import argparse
+
 import sys
-import cupy
+import concurrent.futures
+import threading
+from threading import Thread
+from queue import Queue
+import queue
+import gc
 
 import uproot
 import hepaccelerate
-from hepaccelerate import Results
+from hepaccelerate.utils import Results
+from hepaccelerate.utils import NanoAODDataset
+from hepaccelerate.utils import Histogram
 
-#os.environ["PYTHONPATH"] = "/nfshome/jpata/gpu-analysis/fnal-column-analysis-tools:" + os.environ.get("PYTHONPATH", "")
 import fnal_column_analysis_tools
 from fnal_column_analysis_tools.lumi_tools import LumiMask, LumiData
-#from test_json import LumiMask 
 
 genweight_scalefactor = 1e6
+chunksize = 1
 
-#Choose the backend
-use_cuda = bool(int(os.environ.get("HEPACCELERATE_CUDA", 0)))
-if use_cuda:
-    print("Using the GPU CUDA backend")
-    import cupy
-    NUMPY_LIB = cupy
-    from analysisgpu import *
-    NUMPY_LIB.searchsorted = searchsorted
-else:
-    print("Using the numpy CPU backend")
-    NUMPY_LIB = numpy
-    from analysiscpu import *
-    NUMPY_LIB.asnumpy = numpy.array
+from types import FrameType
+def print_cycles(objects, outstream=sys.stdout, show_progress=False):
+    """
+    objects:       A list of objects to find cycles in.  It is often useful
+                   to pass in gc.garbage to find the cycles that are
+                   preventing some objects from being garbage collected.
+    outstream:     The stream for output.
+    show_progress: If True, print the number of objects reached as they are
+                   found.
+    """
+    def print_path(path):
+        for i, step in enumerate(path):
+            # next "wraps around"
+            next = path[(i + 1) % len(path)]
+
+            outstream.write("   %s -- " % str(type(step)))
+            if isinstance(step, dict):
+                for key, val in step.items():
+                    if val is next:
+                        outstream.write("[%s]" % repr(key))
+                        break
+                    if key is next:
+                        outstream.write("[key] = %s" % repr(val))
+                        break
+            elif isinstance(step, list):
+                outstream.write("[%d]" % step.index(next))
+            elif isinstance(step, tuple):
+                outstream.write("[%d]" % list(step).index(next))
+            else:
+                outstream.write(repr(step))
+            outstream.write(" ->\n")
+        outstream.write("\n")
+    
+    def recurse(obj, start, all, current_path):
+        if show_progress:
+            outstream.write("%d\r" % len(all))
+
+        all[id(obj)] = None
+
+        referents = gc.get_referents(obj)
+        for referent in referents:
+            # If we've found our way back to the start, this is
+            # a cycle, so print it out
+            if referent is start:
+                print_path(current_path)
+
+            # Don't go back through the original list of objects, or
+            # through temporary references to the object, since those
+            # are just an artifact of the cycle detector itself.
+            elif referent is objects or isinstance(referent, FrameType): 
+                continue
+
+            # We haven't seen this object before, so recurse
+            elif id(referent) not in all:
+                recurse(referent, start, all, current_path + [obj])
+
+    for obj in objects:
+        outstream.write("Examining: %r\n" % obj)
+        recurse(obj, obj, { }, [])
 
 
+class thread_killer(object):
+    """Boolean object for signaling a worker thread to terminate
+    """
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.to_kill = False
+    
+    def __call__(self):
+        return self.to_kill
+    
+    def set_tokill(self,tokill):
+        with self.lock:
+            self.to_kill = tokill
 
 def get_histogram(data, weights, bins):
-    return hepaccelerate.Histogram(*histogram_from_vector(data, weights, bins))
+    return Histogram(*histogram_from_vector(data, weights, bins))
 
 def get_selected_muons(muons, trigobj, mask_events, mu_pt_cut_leading, mu_pt_cut_subleading, mu_aeta_cut, mu_iso_cut):
     """
@@ -190,7 +262,7 @@ def get_gen_sumweights(filenames):
     return sumw
 
 def analyze_data(
-    muons, jets, trigobj, scalars,
+    data,
     is_mc=True,
     pu_corrections_target=None,
     lumimask=None,
@@ -204,13 +276,18 @@ def analyze_data(
     debug=True
     ):
     
-    mask_events = NUMPY_LIB.ones(len(muons), dtype=NUMPY_LIB.bool)
+    muons = data["Muon"]
+    jets = data["Jet"]
+    trigobj = data["TrigObj"]
+    scalars = data["eventvars"]
+ 
+    mask_events = NUMPY_LIB.ones(muons.numevents(), dtype=NUMPY_LIB.bool)
     select_events_trigger(scalars, mask_events)
     if debug:
         print("{0} events passed trigger".format(NUMPY_LIB.sum(mask_events)))
 
     weights = {}
-    weights["nominal"] = NUMPY_LIB.ones(len(muons), dtype=NUMPY_LIB.float32)
+    weights["nominal"] = NUMPY_LIB.ones(muons.numevents(), dtype=NUMPY_LIB.float32)
 
     if is_mc:
         weights["nominal"] = weights["nominal"] * scalars["genWeight"]/genweight_scalefactor
@@ -247,7 +324,7 @@ def analyze_data(
     if not is_mc:
         inv_mass[(inv_mass > 120) & (inv_mass < 130)] = 0
  
-    inds = NUMPY_LIB.zeros(len(muons), dtype=NUMPY_LIB.int32)
+    inds = NUMPY_LIB.zeros(muons.numevents(), dtype=NUMPY_LIB.int32)
     leading_muon_pt = get_in_offsets(muons.pt, muons.offsets, inds, ret_mu["selected_events"], ret_mu["selected_muons"])
     leading_muon_eta = get_in_offsets(muons.eta, muons.offsets, inds, ret_mu["selected_events"], ret_mu["selected_muons"])
     leading_jet_pt = get_in_offsets(jets.pt, jets.offsets, inds, ret_mu["selected_events"], ret_jet["selected_jets"])
@@ -286,8 +363,8 @@ def analyze_data(
         mask_lumi = lumimask(scalars["run"], scalars["luminosityBlock"])
         mask_events = mask_events & mask_lumi
         #get integrated luminosity in this file
-        if not (lumidata is None): 
-            int_lumi = get_int_lumi(scalars["run"], scalars["luminosityBlock"], mask_events, lumidata)
+        #if not (lumidata is None): 
+        #    int_lumi = get_int_lumi(scalars["run"], scalars["luminosityBlock"], mask_events, lumidata)
     
     ret = Results({
         "int_lumi": int_lumi,
@@ -307,12 +384,11 @@ def analyze_data(
     
     if is_mc:   
         hist_puweight = get_histogram(pu_weights, NUMPY_LIB.ones_like(pu_weights), NUMPY_LIB.linspace(0, 10, 100))
-        print("puWeight", NUMPY_LIB.min(pu_weights), NUMPY_LIB.max(pu_weights), NUMPY_LIB.mean(pu_weights))
         ret["hist_puweight"] = hist_puweight
     return ret
  
 def load_puhist_target(filename):
-    fi = uproot.open("RunII_2016_data.root")
+    fi = uproot.open(filename)
     
     h = fi["pileup"]
     edges = np.array(h.edges)
@@ -333,80 +409,219 @@ def chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
 
-if __name__ == "__main__":
-    #
+def cache_data(filenames, is_mc, nworkers=16):
+    with concurrent.futures.ProcessPoolExecutor(max_workers=nworkers) as executor:
+        tot_ev = 0
+        tot_mb = 0
+        for result in executor.map(cache_data_multiproc_worker, [(fn, is_mc) for fn in filenames]):
+            tot_ev += result[0]
+            tot_mb += result[1]
+        print() 
+    return tot_ev, tot_mb
 
+def create_dataset(filenames, is_mc):
+    arrays_ev = [
+        "PV_npvsGood",
+        "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_goodVertices",
+        "Flag_globalSuperTightHalo2016Filter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter",
+        "HLT_IsoMu24",
+        "run", "luminosityBlock", "event"
+    ]
+    if is_mc:
+        arrays_ev += ["Pileup_nTrueInt", "Generator_weight", "genWeight"]
+    arrays_jet = [
+        "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId"
+    ]
+    
+    arrays_muon = [
+        "nMuon", "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_mediumId", "Muon_charge"
+    ]
+    
+    arrays_trigobj = [
+        "nTrigObj", "TrigObj_pt", "TrigObj_eta", "TrigObj_phi", "TrigObj_id"
+    ]
+    
+    arrays_to_load = arrays_ev + arrays_jet + arrays_muon + arrays_trigobj
+    ds = NanoAODDataset(filenames, arrays_to_load, "Events", ["Muon", "Jet", "TrigObj"], arrays_ev)
+    return ds
+
+def cache_data_multiproc_worker(args):
+    filename, is_mc = args
+    t0 = time.time()
+    ds = create_dataset([filename], is_mc)
+    ds.numpy_lib = np
+    ds.preload()
+    ds.make_objects()
+    ds.to_cache()
+    t1 = time.time()
+    dt = t1 - t0
+    processed_size_mb = ds.memsize()/1024.0/1024.0
+    print("built cache for {0}, {1:.2f} MB, {2:.2E} Hz, {3:.2f} MB/s".format(filename, processed_size_mb, len(ds)/dt, processed_size_mb/dt))
+    return len(ds), processed_size_mb
+
+class InputGen:
+    def __init__(self, paths, is_mc, nthreads):
+        self.paths_chunks = list(chunks(paths, chunksize))
+        self.chunk_lock = threading.Lock()
+        self.loaded_lock = threading.Lock()
+        self.num_chunk = 0
+        self.num_loaded = 0
+        self.is_mc = is_mc
+        self.nthreads = nthreads
+
+    def is_done(self):
+        return (self.num_chunk == len(self.paths_chunks)) and (self.num_loaded == len(self.paths_chunks))
+ 
+    def __iter__(self):
+        return self.generator()
+
+    #did not make this a generator to simplify handling the thread locks
+    def nextone(self):
+
+        self.chunk_lock.acquire()
+        if self.num_chunk == len(self.paths_chunks):
+            self.chunk_lock.release()
+            return None
+
+        ds = create_dataset(self.paths_chunks[self.num_chunk], is_mc)
+        self.num_chunk += 1
+        ds.numpy_lib = numpy
+        self.chunk_lock.release()
+
+        ds.from_cache(nthreads=16, verbose=True)
+
+        with self.loaded_lock:
+            self.num_loaded += 1
+
+        return ds
+
+    def __call__(self):
+        return self.__iter__()
+
+def threaded_batches_feeder(tokill, batches_queue, dataset_generator):
+    while not tokill():
+        ds = dataset_generator.nextone()
+        if not ds:
+            break 
+        batches_queue.put(ds, block=True)
+    #print("Cleaning up threaded_batches_feeder worker", threading.get_ident())
+    return
+
+def event_loop(train_batches_queue, use_cuda):
+    ds = train_batches_queue.get(block=True)
+    #print("event_loop nev={0}, queued={1}".format(len(ds), train_batches_queue.qsize()))
+
+    if use_cuda:
+        ds.numpy_lib = cupy
+        ds.move_to_device(cupy)
+
+    ret = ds.analyze(analyze_data, verbose=True, is_mc=is_mc, lumimask=lumimask, lumidata=lumidata, pu_corrections_target=pu_corrections_2016, debug=False)
+    ret["num_events"] = len(ds)
+
+    train_batches_queue.task_done()
+    #print("analyzed {0}".format(len(ds)))
+    return ret, len(ds), ds.memsize()/1024.0/1024.0
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Example HiggsMuMu analysis')
+    parser.add_argument('--use-cuda', action='store_true', help='Use the CUDA backend')
+    parser.add_argument('--action', '-a', action='append', help='List of actions to do', choices=['cache', 'analyze'])
+    parser.add_argument('--nthreads', '-t', action='store', help='Number of CPU threads or workers to use', type=int, default=4, required=False)
+    parser.add_argument('--datapath', '-p', action='store', help='Prefix to load NanoAOD data from', default="/nvmedata")
+    parser.add_argument('--maxfiles', '-m', action='store', help='Maximum number of files to process', default=-1, type=int)
+    args = parser.parse_args()
+    return args
+
+if __name__ == "__main__":
     nev_total = 0
     t0 = time.time()
+    
+    args = parse_args()  
+    print(args)
+
+    processed_size_mb = 0
+    num_processed = 0
+
+    if args.use_cuda:
+        print("Using the GPU CUDA backend")
+        import cupy
+        dev = cupy.cuda.Device(0)
+        NUMPY_LIB = cupy
+        from hepaccelerate.backend_cuda import *
+        NUMPY_LIB.searchsorted = searchsorted
+    else:
+        print("Using the numpy CPU backend")
+        NUMPY_LIB = numpy
+        from hepaccelerate.backend_cpu import *
+        NUMPY_LIB.asnumpy = numpy.array
+
+    NanoAODDataset.numpy_lib = NUMPY_LIB
     LumiMask.numpy_lib = NUMPY_LIB
 
     lumimask = LumiMask("data/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON.txt")
     lumidata = LumiData("data/lumi2017.csv")
+    pu_corrections_2016 = load_puhist_target("data/RunII_2017_data.root") 
+
     for datasetname, globpattern, is_mc in [
-        ("data_2017", "/nvmedata/store/data/Run2017*/SingleMuon/NANOAOD/Nano14Dec2018-v1/**/*.root", False),
-        ("dy", "/nvmedata/store/mc/RunIIFall17NanoAOD/DYJetsToLL_M-50_TuneCP5_13TeV-amcatnloFXFX-pythia8/NANOAODSIM/**/*.root", True),
-        ("ggh", "/nvmedata/store/mc/RunIIFall17NanoAOD/GluGluHToMuMu_M125_13TeV_amcatnloFXFX_pythia8/NANOAODSIM/**/*.root", True),
+        ("data_2017", args.datapath + "/store/data/Run2017*/SingleMuon/NANOAOD/Nano14Dec2018-v1/**/*.root", False),
+#        ("ggh", args.datapath + "/store/mc/RunIIFall17NanoAODv4/GluGluHToMuMu_M125_*/NANOAODSIM/*12Apr2018_Nano14Dec2018*/**/*.root", True),
+        ("dy", args.datapath + "/store/mc/RunIIFall17NanoAODv4/DYJetsToLL_M-50_TuneCP5_13TeV-amcatnloFXFX-pythia8*/**/*.root", True),
+#        ("ttjets_dl", args.datapath + "/store/mc/RunIIFall17NanoAODv4/TTJets_DiLept_TuneCP5_13TeV-madgraphMLM-pythia8/**/*.root", True),
+#        ("ww", args.datapath + "/store/mc/RunIIFall17NanoAODv4/WWTo2L2Nu_NNPDF31_TuneCP5_13TeV-powheg-pythia8/**/*.root", True),
+#        ("wz", args.datapath + "/store/mc/RunIIFall17NanoAODv4/WZTo3LNu_13TeV-powheg-pythia8/**/*.root", True),
+#        ("zz", args.datapath + "/store/mc/RunIIFall17NanoAODv4/ZZTo2L2Nu_13TeV_powheg_pythia8/**/*.root", True),
         ]:
         filenames_all = glob.glob(globpattern, recursive=True)
-        filenames_all = [fn for fn in filenames_all if not "Friend" in fn][:20]
-        ret_ds = []
-        
-        print("processing dataset {0} with {1} files".format(datasetname, len(filenames_all)))
-        
-        for filenames in chunks(filenames_all, 10):
-            arrays_ev = [
-                "PV_npvsGood",
-                "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_goodVertices",
-                "Flag_globalSuperTightHalo2016Filter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter",
-                "HLT_IsoMu24",
-                "run", "luminosityBlock", "event"
-            ]
-            if is_mc:
-                arrays_ev += ["Pileup_nTrueInt", "Generator_weight", "genWeight"]
-            arrays_jet = [
-                "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId"
-            ]
-            
-            arrays_muon = [
-                "nMuon", "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_mediumId", "Muon_charge"
-            ]
-            
-            arrays_trigobj = [
-                "nTrigObj", "TrigObj_pt", "TrigObj_eta", "TrigObj_phi", "TrigObj_id"
-            ]
-            
-            pu_corrections_2016 = load_puhist_target("data/RunII_2017_data.root") 
- 
-            arrays_to_load = arrays_ev + arrays_jet + arrays_muon + arrays_trigobj
-            ds = hepaccelerate.NanoAODDataset(filenames, arrays_to_load, "Events", NUMPY_LIB)
-            prepare_cache = "--prepare-cache" in sys.argv
-            
-            if prepare_cache:
-                ds.preload(nthreads=16, do_progress=True, event_vars=[bytes(x, encoding='ascii') for x in arrays_ev])
-                ds.to_cache(do_progress=True, nthreads=16)
-            else:
-                ds.from_cache(do_progress=True, nthreads=16)
-            nev_total += len(ds)
-            #ds.make_random_weights()
+        filenames_all = [fn for fn in filenames_all if not "Friend" in fn]
+        print("dataset {0} has {1} files".format(datasetname, len(filenames_all)))
+        if args.maxfiles > 0:
+            filenames_all = filenames_all[:args.maxfiles]
 
-            ret = ds.analyze(analyze_data, is_mc=is_mc, lumimask=lumimask, lumidata=lumidata, pu_corrections_target=pu_corrections_2016, debug=True)
+        print("processing {0} files".format(len(filenames_all)))
 
-            if is_mc:
-                ret["gen_sumweights"] = get_gen_sumweights(filenames)
+        if "cache" in args.action:
+            print("Preparing caches ROOT files")
+            nev_total, processed_size_mb = cache_data(filenames_all, is_mc, nworkers=args.nthreads)
+
+        if "analyze" in args.action:        
+            training_set_generator = InputGen(list(filenames_all), is_mc, args.nthreads)
+            threadk = thread_killer()
+            threadk.set_tokill(False)
+            train_batches_queue = Queue(maxsize=10)
+            cuda_batches_queue = Queue(maxsize=1)
  
-            ret_ds += [ret]
-            #ret.save_json("out/{0}.json".format(datasetname))
-            
-            #clean up temporary arrays from CUDA memory 
-            mempool = cupy.get_default_memory_pool()
-            pinned_mempool = cupy.get_default_pinned_memory_pool()
-            mempool.free_all_blocks()
-            pinned_mempool.free_all_blocks()
-        
-        #collect all outputs from dataset and save to json        
-        ret = sum(ret_ds, Results({}))
-        ret.save_json("out/{0}.json".format(datasetname))
+            for _ in range(1):
+                t = Thread(target=threaded_batches_feeder, args=(threadk, train_batches_queue, training_set_generator))
+                t.start()
+
+            rets = []
+
+            #loop over all data
+            while num_processed < len(training_set_generator.paths_chunks):
+                ret, nev, memsize = event_loop(train_batches_queue, args.use_cuda) 
+                rets += [ret]
+                processed_size_mb += memsize
+                nev_total += nev
+                num_processed += 1
+
+                if args.use_cuda:
+                    mempool = cupy.get_default_memory_pool()
+                    pinned_mempool = cupy.get_default_pinned_memory_pool()
+                    mempool.free_all_blocks()
+                    pinned_mempool.free_all_blocks()
+                    dev.synchronize()
+
+            #clean up threads
+            threadk.set_tokill(True)
+
+            #
+            ret = sum(rets, Results({}))
+            if is_mc:
+                ret["gen_sumweights"] = get_gen_sumweights(filenames_all)
+            ret.save_json("out/{0}.json".format(datasetname))
 
     t1 = time.time()
     dt = t1 - t0
-    print("Processed {0:.2E} events in total, {1:.1f} seconds, {2:.2E} Hz".format(nev_total, dt, nev_total/dt))
+    print("Overall processed {nev:.2E} ({nev}) events in total {size:.2f} GB, {dt:.1f} seconds, {evspeed:.2E} Hz, {sizespeed:.2f} MB/s".format(
+        nev=nev_total, dt=dt, size=processed_size_mb/1024.0, evspeed=nev_total/dt, sizespeed=processed_size_mb/dt)
+    )
