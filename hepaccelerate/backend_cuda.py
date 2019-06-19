@@ -14,7 +14,7 @@ def searchsorted_devfunc(arr, val):
         return len(arr)
 
     for i in range(len(arr)):
-        if val <= arr[i]:
+        if val < arr[i+1]:
             ret = i
             break
     return ret
