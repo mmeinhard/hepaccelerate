@@ -352,7 +352,8 @@ def mask_deltar_first(objs1, mask1, objs2, mask2, drcut):
 def histogram_from_vector(data, weights, bins):        
     out_w = cupy.zeros(len(bins) - 1, dtype=cupy.float32)
     out_w2 = cupy.zeros(len(bins) - 1, dtype=cupy.float32)
-    fill_histogram[32, 1024](data, weights, bins, out_w, out_w2)
+    if not data.shape[0] == 0:
+        fill_histogram[32, 1024](data, weights, bins, out_w, out_w2)
     return cupy.asnumpy(out_w), cupy.asnumpy(out_w2), cupy.asnumpy(bins)
 
 

@@ -213,9 +213,13 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
                 feats_selected[k] = NUMPY_LIB.take(feats[k], index, axis=0)
                 if not isinstance(feats_selected[k], np.ndarray):
                     feats_selected[k] = NUMPY_LIB.asnumpy(feats_selected[k])
-                    print(feats_selected[k].shape)
-            DNN_pred = DNN_model.predict([feats_selected["jets"], feats_selected["leps"], feats_selected["met"]])
-            DNN_pred = NUMPY_LIB.array(DNN_pred)[:,0]
+            if feats_selected["jets"].shape[0] == 0:
+                print(feats_selected["jets"].shape)
+                DNN_pred = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.float32)[mask_events_split]
+                print(DNN_pred.shape) 
+            else:
+                DNN_pred = DNN_model.predict([feats_selected["jets"], feats_selected["leps"], feats_selected["met"]])
+                DNN_pred = NUMPY_LIB.array(DNN_pred)[:,0]
 
         # create histograms filled with weighted events
         hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,14,15)))
