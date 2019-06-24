@@ -18,6 +18,10 @@ from losses import mse0,mae0,r2_score0
 
 from fnal_column_analysis_tools.lumi_tools import LumiMask, LumiData
 
+#config = tf.ConfigProto()
+#config.gpu_options.per_process_gpu_memory_fraction = 0.5
+#session = tf.Session(config=config)
+
 config = tf.ConfigProto()
 config.gpu_options.allow_growth=True
 sess = tf.Session(config=config)
@@ -116,7 +120,7 @@ def remove_inf_nan(arr):
 
 
 #This function will be called for every file in the dataset
-def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, lumimask=None, add_DNN=False, DNN_model=None):
+def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, lumimask=None, DNN=False, DNN_model=None):
     #Output structure that will be returned and added up among the files.
     #Should be relatively small.
     ret = Results()
@@ -181,13 +185,34 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
     leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
 
-    if add_DNN:
+    if DNN:
 
-        feats = {}
-        # evaluate dnn
-        feats["jets"] = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
-        feats["met"] = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
-        feats["leps"] = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
+        import time
+        start = time.time()
+
+        jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
+        met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
+        leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
+
+        inputs = [jets_feats, leps_feats, met_feats]
+
+        if DNN.startswith("ffwd"):
+            inputs = [NUMPY_LIB.reshape(x, (x.shape[0], -1)) for x in inputs]
+            inputs = NUMPY_LIB.hstack(inputs)           
+            inputs = NUMPY_LIB.asnumpy(inputs)
+ 
+        if DNN.startswith("cmb"):
+            if not isinstance(jets_feats, np.ndarray):
+                inputs = [NUMPY_LIB.asnumpy(x) for x in inputs]
+
+        if jets_feats.shape[0] == 0:
+            DNN_pred = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.float32)
+        else:
+            DNN_pred = DNN_model.predict(inputs, batch_size = 10000)
+            print("numpy array", DNN_pred.shape)
+            DNN_pred = NUMPY_LIB.array(DNN_model.predict(inputs, batch_size = 10000))
+            DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
+            print("time needed to pred model:", (time.time() - start))
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
@@ -205,50 +230,41 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     for p in processes.keys():
 
         mask_events_split = processes[p]
-    
-        if add_DNN:
-            feats_selected = {}
-            index = NUMPY_LIB.arange(nEvents)[mask_events_split]
-            for k in ["jets", "met", "leps"]:
-                feats_selected[k] = NUMPY_LIB.take(feats[k], index, axis=0)
-                if not isinstance(feats_selected[k], np.ndarray):
-                    feats_selected[k] = NUMPY_LIB.asnumpy(feats_selected[k])
-            if feats_selected["jets"].shape[0] == 0:
-                print(feats_selected["jets"].shape)
-                DNN_pred = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.float32)[mask_events_split]
-                print(DNN_pred.shape) 
-            else:
-                DNN_pred = DNN_model.predict([feats_selected["jets"], feats_selected["leps"], feats_selected["met"]])
-                DNN_pred = NUMPY_LIB.array(DNN_pred)[:,0]
 
-        # create histograms filled with weighted events
-        hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,14,15)))
-        hist_nleps = Histogram(*ha.histogram_from_vector(nleps[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,10,11)))
-        hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,8,9)))
-        hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,500,31)))
-        hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,500,31)))
-
-        if add_DNN:
-            hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred, weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0.,1.,16)))
-            hist_DNN_ROC = Histogram(*ha.histogram_from_vector(DNN_pred, weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0.,1.,1000)))
-
-        if p=="unsplit":
-            if "Run" in sample:
-                name = "data"
-            else:
-                name = samples_info[sample]["process"]
-        else:
-            name = p   
+        sl_4j_geq3t = mask_events_split & (njets == 4) & (btags >=3) 
+        sl_5j_geq3t = mask_events_split & (njets == 5) & (btags >=3) 
+        sl_geq6j_geq3t = mask_events_split & (njets >= 6) & (btags >=3) 
+  
  
-        ret["hist_{0}_njets".format(name)] = hist_njets
-        ret["hist_{0}_nleps".format(name)] = hist_nleps
-        ret["hist_{0}_nbtags".format(name)] = hist_nbtags
-        ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
-        ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
+        for cut, cut_name in zip([mask_events_split, sl_4j_geq3t, sl_5j_geq3t, sl_geq6j_geq3t], ["sl_geq4_geq3t", "sl_4j_geq3t","sl_5j_geq3t", "sl_geq6_geq3t"]): 
+            # create histograms filled with weighted events
+            hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,14,15)))
+            hist_nleps = Histogram(*ha.histogram_from_vector(nleps[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,10,11)))
+            hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,8,9)))
+            hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,500,31)))
+            hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,500,31)))
+
+            if DNN:
+                hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0.,1.,16)))
+                hist_DNN_ROC = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0.,1.,1000)))
+
+            if p=="unsplit":
+                if "Run" in sample:
+                    name = "data" + "_" + cut_name
+                else:
+                    name = samples_info[sample]["process"] + "_" + cut_name
+            else:
+                name = p + "_" + cut_name  
+ 
+            ret["hist_{0}_njets".format(name)] = hist_njets
+            ret["hist_{0}_nleps".format(name)] = hist_nleps
+            ret["hist_{0}_nbtags".format(name)] = hist_nbtags
+            ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
+            ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
         
-        if add_DNN:
-            ret["hist_{0}_DNN".format(name)] = hist_DNN
-            ret["hist_{0}_DNN_ROC".format(name)] = hist_DNN_ROC
+            if DNN:
+                ret["hist_{0}_DNN".format(name)] = hist_DNN
+                ret["hist_{0}_DNN_ROC".format(name)] = hist_DNN_ROC
  
     #TODO: implement JECs, btagging, lepton+trigger weights
 
@@ -264,7 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('--outdir', action='store', help='directory to store outputs', type=str, default=os.getcwd())
     parser.add_argument('--filelist', action='store', help='List of files to load', type=str, default=None, required=False)
     parser.add_argument('--sample', action='store', help='sample name', type=str, default=None, required=True)
-    parser.add_argument('--evaluate-DNN', action='store_true', help='run DNN evaluation for all events')
+    parser.add_argument('--DNN', action='store', choices=['save-arrays','cmb_binary', 'cmb_multiclass', 'ffwd_binary', 'ffwd_multiclass',False], help='options for DNN evaluation / preparation', default=False)
     parser.add_argument('--path-to-model', action='store', help='path to DNN model', type=str, default=None, required=False)
     parser.add_argument('filenames', nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -411,14 +427,20 @@ if __name__ == "__main__":
             print(dataset.printout())
 
         #Run the analyze_data function on all files
-        if args.evaluate_DNN:
+        if args.DNN:
             model = load_model(args.path_to_model, custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
-                        
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, sample=args.sample, samples_info=samples_info, add_DNN=True, DNN_model=model)
-           
-        else:
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, sample=args.sample, samples_info=samples_info, add_DNN=False, DNN_model=None)
+            
+            import time
+            start = time.time()            
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model)
+            print("time needed for file:", time.time()-start)       
              
+        else:
+            import time
+            start = time.time()
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=None)
+            print("time needed for file:", time.time()-start)       
+            
     print(results)
     #print("Efficiency of dimuon events: {0:.2f}".format(results["events_dimuon"]/results["num_events"]))
     
