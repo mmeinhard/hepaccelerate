@@ -17,6 +17,7 @@ from losses import mse0,mae0,r2_score0
 
 
 from fnal_column_analysis_tools.lumi_tools import LumiMask, LumiData
+from fnal_column_analysis_tools.lookup_tools import extractor
 
 #config = tf.ConfigProto()
 #config.gpu_options.per_process_gpu_memory_fraction = 0.5
@@ -31,24 +32,37 @@ def chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
 
+### function for primary vertex selection
+def vertex_selection(scalars, mask_events):
+
+    PV_isfake = (scalars["PV_score"] == 0) & (scalars["PV_chi2"] == 0)
+    PV_rho = NUMPY_LIB.sqrt(scalars["PV_x"]**2 + scalars["PV_y"]**2) 
+    mask_events = mask_events & (~PV_isfake) & (scalars["PV_ndof"] > 4) & (scalars["PV_z"]<24) & (PV_rho < 2)
+
+    return mask_events 
+
 ### function for lepton selection
 def lepton_selection(leps, cuts):
 
-    passes_eta = NUMPY_LIB.abs(leps.eta) < cuts["eta"]
-    passes_subleading_pt = leps.pt > cuts["subleading_pt"]
-    passes_leading_pt = leps.pt > cuts["leading_pt"]
+    passes_eta = (NUMPY_LIB.abs(leps.eta) < cuts["eta"])
+    passes_subleading_pt = (leps.pt > cuts["subleading_pt"])
+    passes_leading_pt = (leps.pt > cuts["leading_pt"])
 
     if cuts["type"] == "el":
         sca = NUMPY_LIB.abs(leps.deltaEtaSC + leps.eta)
-        passes_id = ( (leps.cutBased >= 4) & NUMPY_LIB.invert( (sca>=1.4442) & (sca<1.5669)) & ( ((leps.dz < 0.10) & (sca <= 1.479)) | ((leps.dz < 0.20) & (sca > 1.479)) ) & ( ((leps.dxy < 0.05) & (sca <= 1.478)) | ((leps.dxy < 0.1) & (sca > 1.479)) ))
+        passes_id = (leps.cutBased >= 4)
+        passes_SC = NUMPY_LIB.invert((sca >= 1.4442) & (sca <= 1.5660))
+        # cuts taken from: https://twiki.cern.ch/twiki/bin/view/CMS/CutBasedElectronIdentificationRun2#Working_points_for_92X_and_later
+        passes_impact = ((leps.dz < 0.10) & (sca <= 1.479)) | ((leps.dz < 0.20) & (sca > 1.479)) | ((leps.dxy < 0.05) & (sca <= 1.479)) | ((leps.dxy < 0.1) & (sca > 1.479))      
+        #passes_id = ( (leps.cutBased >= 4) & NUMPY_LIB.invert( (sca>=1.4442) & (sca<1.5669)) & ( ((leps.dz < 0.10) & (sca <= 1.479)) | ((leps.dz < 0.20) & (sca > 1.479)) ) & ( ((leps.dxy < 0.05) & (sca <= 1.478)) | ((leps.dxy < 0.1) & (sca > 1.479)) ))
 
         #select electrons
-        good_leps = passes_eta & passes_leading_pt & passes_id
-        veto_leps = passes_eta & passes_subleading_pt & passes_id & NUMPY_LIB.invert(good_leps)
+        good_leps = passes_eta & passes_leading_pt & passes_id & passes_SC & passes_impact
+        veto_leps = passes_eta & passes_subleading_pt & NUMPY_LIB.invert(good_leps) & passes_id & passes_SC & passes_impact
     
     elif cuts["type"] == "mu":
-        passes_leading_iso = (leps.pfRelIso04_all < cuts["subleading_iso"])
-        passes_subleading_iso = (leps.pfRelIso04_all < cuts["leading_iso"])
+        passes_leading_iso = (leps.pfRelIso04_all < cuts["leading_iso"])
+        passes_subleading_iso = (leps.pfRelIso04_all < cuts["subleading_iso"])
         passes_id = (leps.tightId == 1)
 
         #select muons
@@ -110,6 +124,24 @@ def load_puhist_target(filename):
     values_down = values_down / np.sum(values_down)
     return edges, (values_nominal, values_up, values_down)
 
+### trigger SF calculations
+def load_triggerhist_target(filename, histname):
+    fi = uproot.open(filename)
+    hist = fi[histname]
+
+    edges = np.array(hist.edges)
+    values = np.array(hist.values)
+
+    return edges, values
+
+def compute_trigger_weight(trigger_corrections_target, var_x, var_y, weights):
+
+    edges, values = trigger_corrections_target   
+ 
+    trigger_weights = NUMPY_LIB.zeros_like(weights)
+    ha.get_bin_contents2D(var_x, var_y, edges, values, trigger_weights)    
+    return trigger_weights
+
 def get_histogram(data, weights, bins):
     return Histogram(*ha.histogram_from_vector(data, weights, bins))
 
@@ -120,7 +152,7 @@ def remove_inf_nan(arr):
 
 
 #This function will be called for every file in the dataset
-def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, lumimask=None, DNN=False, DNN_model=None):
+def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, lumimask=None, cat=False, DNN=False, DNN_model=None):
     #Output structure that will be returned and added up among the files.
     #Should be relatively small.
     ret = Results()
@@ -132,6 +164,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     jets = data["Jet"]
 
     nEvents = muons.numevents()
+
 
     # prepare event cuts
     mask_events = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.bool)
@@ -145,15 +178,17 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         mask_events = mask_events & scalars[flag]
     trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu27"]) 
     mask_events = mask_events & trigger 
-    mask_events = mask_events & scalars["PV_npvsGood"]>0
+    mask_events = mask_events & (scalars["PV_npvsGood"]>0)
+    #mask_events = vertex_selection(scalars, mask_events) 
     
     # apply object selection for muons, electrons, jets
     good_muons, veto_muons = lepton_selection(muons, parameters["muons"])
     good_electrons, veto_electrons = lepton_selection(electrons, parameters["electrons"])
-    good_jets = jet_selection(jets, muons, veto_muons, parameters["jets"]) & jet_selection(jets, electrons, veto_electrons, parameters["jets"])
+    good_jets = jet_selection(jets, muons, veto_muons, parameters["jets"]) & jet_selection(jets, electrons, veto_electrons, parameters["jets"]) & jet_selection(jets, muons, good_muons, parameters["jets"]) & jet_selection(jets, electrons, good_electrons, parameters["jets"])
     bjets = good_jets & (jets.btagDeepB > 0.4941)
 
     # apply event selection
+    #nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
     nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
 
     #SL = (ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8) == 1) ^ (ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8) == 1)
@@ -162,7 +197,21 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     met = (scalars["MET_pt"] > 20)
 
-    mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=3) & met
+    mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
+
+    # in this section, we calculate all needed variables
+    # get control variables
+    inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
+    leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
+    leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
+    leading_lepton_eta = ha.get_in_offsets(muons.eta, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.eta, electrons.offsets, inds, mask_events, good_electrons)
+
+    # variables for trigger SFs
+    SuperClusterEta = (electrons.deltaEtaSC + electrons.eta)
+    leading_lepton_SuperClusterEta = ha.get_in_offsets(SuperClusterEta, electrons.offsets, inds, mask_events, good_electrons)
+    nMuons =  ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8)
+    nElectrons = ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8)
+
 
     # calculate weights for MC samples
     weights = {}
@@ -170,20 +219,30 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     if is_mc:
         weights["nominal"] = weights["nominal"] * scalars["genWeight"] * parameters["lumi"] * samples_info[sample]["XS"] / samples_info[sample]["ngen_weight"]
-        pu_corrections_target = load_puhist_target("data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root")
-        pu_weights = compute_pu_weights(pu_corrections_target, weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
+        
+        # calc pu corrections
+        pu_weights = compute_pu_weights(parameters["pu_corrections_target"], weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
         weights["nominal"] = weights["nominal"] * pu_weights
+
+        # calc trigger SF
+        SF_trigger_el = NUMPY_LIB.array(evaluator["el_triggerSF"](leading_lepton_pt, leading_lepton_SuperClusterEta))
+        SF_ID_el = NUMPY_LIB.array(evaluator["el_idSF"](leading_lepton_pt, leading_lepton_SuperClusterEta))
+        SF_reco_el = NUMPY_LIB.array(evaluator["el_recoSF"](leading_lepton_pt, leading_lepton_SuperClusterEta))
+        SF_trigger_mu = NUMPY_LIB.array(evaluator["mu_triggerSF"](leading_lepton_pt, NUMPY_LIB.abs(leading_lepton_eta)))
+        SF_ID_mu = NUMPY_LIB.array(evaluator["mu_idSF"](leading_lepton_pt, NUMPY_LIB.abs(leading_lepton_eta)))
+        SF_iso_mu = NUMPY_LIB.array(evaluator["mu_isoSF"](leading_lepton_pt, NUMPY_LIB.abs(leading_lepton_eta)))
+
+        SF_trigger = NUMPY_LIB.add(NUMPY_LIB.where((nMuons != 1), SF_trigger_mu, NUMPY_LIB.zeros(nEvents)), NUMPY_LIB.where((nElectrons != 1), SF_trigger_el, NUMPY_LIB.zeros(nEvents)))
+        SF_ID = NUMPY_LIB.add(NUMPY_LIB.where((nMuons != 1), SF_ID_mu, NUMPY_LIB.zeros(nEvents)), NUMPY_LIB.where((nElectrons != 1), SF_ID_el, NUMPY_LIB.zeros(nEvents)))
+        SF_iso = NUMPY_LIB.add(NUMPY_LIB.where((nMuons != 1), SF_iso_mu, NUMPY_LIB.zeros(nEvents)), NUMPY_LIB.where((nElectrons != 1), SF_reco_el, NUMPY_LIB.zeros(nEvents)))
+        weights["nominal"] = weights["nominal"] * SF_trigger * SF_ID * SF_iso
+
+        # calc btag weights
 
     #in case of data: check if event is in golden lumi file
     if not is_mc and not (lumimask is None):
         mask_lumi = lumimask(scalars["run"], scalars["luminosityBlock"])
         mask_events = mask_events & mask_lumi
-
-    # in this section, we calculate all needed variables
-    # get control variables
-    inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
-    leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
-    leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
 
     if DNN:
 
@@ -209,9 +268,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
             DNN_pred = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.float32)
         else:
             DNN_pred = DNN_model.predict(inputs, batch_size = 10000)
-            print("numpy array", DNN_pred.shape)
             DNN_pred = NUMPY_LIB.array(DNN_model.predict(inputs, batch_size = 10000))
-            DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
+            if DNN.endswith("binary"):
+                DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
             print("time needed to pred model:", (time.time() - start))
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
@@ -230,23 +289,23 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     for p in processes.keys():
 
         mask_events_split = processes[p]
-
-        sl_4j_geq3t = mask_events_split & (njets == 4) & (btags >=3) 
-        sl_5j_geq3t = mask_events_split & (njets == 5) & (btags >=3) 
-        sl_geq6j_geq3t = mask_events_split & (njets >= 6) & (btags >=3) 
-  
+    
+        sl_jge4_tge3 = mask_events_split & (njets >= 4) & (btags >= 3)
+        sl_j4_tge3 = mask_events_split & (njets == 4) & (btags >=3) 
+        sl_j5_tge3 = mask_events_split & (njets == 5) & (btags >=3) 
+        sl_jge6_tge3 = mask_events_split & (njets >= 6) & (btags >=3) 
  
-        for cut, cut_name in zip([mask_events_split, sl_4j_geq3t, sl_5j_geq3t, sl_geq6j_geq3t], ["sl_geq4_geq3t", "sl_4j_geq3t","sl_5j_geq3t", "sl_geq6_geq3t"]): 
-            # create histograms filled with weighted events
-            hist_njets = Histogram(*ha.histogram_from_vector(njets[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,14,15)))
-            hist_nleps = Histogram(*ha.histogram_from_vector(nleps[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,10,11)))
-            hist_nbtags = Histogram(*ha.histogram_from_vector(btags[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,8,9)))
-            hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,500,31)))
-            hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0,500,31)))
-
-            if DNN:
-                hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0.,1.,16)))
-                hist_DNN_ROC = Histogram(*ha.histogram_from_vector(DNN_pred[mask_events_split], weights["nominal"][mask_events_split], NUMPY_LIB.linspace(0.,1.,1000)))
+        if not cat:
+            list_cat = zip([mask_events_split, sl_jge4_tge3, sl_j4_tge3, sl_j5_tge3, sl_jge6_tge3], ["sl_jge4_tge2", "sl_jge4_tge3", "sl_j4_tge3", "sl_j5_tge3", "sl_jge6_tge3"])
+        if cat == "sl_j4_tge3":
+            list_cat = zip([sl_j4_tge3], ["sl_j4_tge3"])
+        if cat == "sl_j5_tge3":
+            list_cat = zip([sl_j5_tge3], ["sl_j5_tge3"])
+        if cat == "sl_jge6_tge3":
+            list_cat = zip([sl_jge6_tge3], ["sl_jge6_tge3"])
+ 
+        #for cut, cut_name in zip([mask_events_split, sl_4j_geq3t, sl_5j_geq3t, sl_geq6j_geq3t], ["sl_geq4_geq3t", "sl_4j_geq3t","sl_5j_geq3t", "sl_geq6_geq3t"]): 
+        for cut, cut_name in list_cat: 
 
             if p=="unsplit":
                 if "Run" in sample:
@@ -255,16 +314,36 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
                     name = samples_info[sample]["process"] + "_" + cut_name
             else:
                 name = p + "_" + cut_name  
- 
-            ret["hist_{0}_njets".format(name)] = hist_njets
-            ret["hist_{0}_nleps".format(name)] = hist_nleps
-            ret["hist_{0}_nbtags".format(name)] = hist_nbtags
-            ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
-            ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
         
+            # create histograms filled with weighted events
+            hist_njets = Histogram(*ha.histogram_from_vector(njets[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,30,31)))
+            ret["hist_{0}_njets".format(name)] = hist_njets
+            hist_nleps = Histogram(*ha.histogram_from_vector(nleps[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,10,11)))
+            ret["hist_{0}_nleps".format(name)] = hist_nleps
+            hist_nbtags = Histogram(*ha.histogram_from_vector(btags[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,8,9)))
+            ret["hist_{0}_nbtags".format(name)] = hist_nbtags
+            hist_leading_jet_pt = Histogram(*ha.histogram_from_vector(leading_jet_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
+            ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
+            hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
+            ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
+
             if DNN:
-                ret["hist_{0}_DNN".format(name)] = hist_DNN
-                ret["hist_{0}_DNN_ROC".format(name)] = hist_DNN_ROC
+                if DNN.endswith("multiclass"):
+                    class_pred = NUMPY_LIB.argmax(DNN_pred, axis=1)
+                    for n, n_name in zip([0,1,2,3,4,5], ["ttH", "ttbb", "tt2b", "ttb", "ttcc", "ttlf"]):
+                        node = (class_pred == n)
+                        DNN_node = DNN_pred[:,n]
+                        hist_DNN = Histogram(*ha.histogram_from_vector(DNN_node[(cut & node)], weights["nominal"][(cut & node)], NUMPY_LIB.linspace(0.,1.,16)))
+                        ret["hist_{0}_DNN_{1}".format(name, n_name)] = hist_DNN
+                        hist_DNN_ROC = Histogram(*ha.histogram_from_vector(DNN_node[(cut & node)], weights["nominal"][(cut & node)], NUMPY_LIB.linspace(0.,1.,1000)))
+                        ret["hist_{0}_DNN_ROC_{1}".format(name, n_name)] = hist_DNN_ROC
+                        
+                else:
+                    hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0.,1.,16)))
+                    ret["hist_{0}_DNN".format(name)] = hist_DNN
+                    hist_DNN_ROC = Histogram(*ha.histogram_from_vector(DNN_pred[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0.,1.,1000)))
+                    ret["hist_{0}_DNN_ROC".format(name)] = hist_DNN_ROC
+
  
     #TODO: implement JECs, btagging, lepton+trigger weights
 
@@ -281,6 +360,7 @@ if __name__ == "__main__":
     parser.add_argument('--filelist', action='store', help='List of files to load', type=str, default=None, required=False)
     parser.add_argument('--sample', action='store', help='sample name', type=str, default=None, required=True)
     parser.add_argument('--DNN', action='store', choices=['save-arrays','cmb_binary', 'cmb_multiclass', 'ffwd_binary', 'ffwd_multiclass',False], help='options for DNN evaluation / preparation', default=False)
+    parser.add_argument('--categories', action='store', choices=['sl_j4_tge3','sl_j5_tge3', 'sl_jge6_tge3',False], help='categories to be processed (default: False -> all categories)', default=False)
     parser.add_argument('--path-to-model', action='store', help='path to DNN model', type=str, default=None, required=False)
     parser.add_argument('filenames', nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -305,11 +385,11 @@ if __name__ == "__main__":
         "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass",
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge",
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy",
-        "TrigObj_pt", "TrigObj_eta", "TrigObj_phi", "TrigObj_id",
     ]
     #these are variables per event
     arrays_event = [
-        "PV_npvsGood",
+        "PV_npvsGood", "PV_ndof", "PV_npvs", "PV_score", "PV_x", "PV_y", "PV_z", "PV_chi2",
+        #"PV_npvsGood",
         "Flag_goodVertices", "Flag_globalSuperTightHalo2016Filter", "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter", "Flag_eeBadScFilter", "Flag_ecalBadCalibFilter",
         "HLT_Ele35_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150",
         "HLT_IsoMu24_eta2p1", "HLT_IsoMu27",
@@ -399,7 +479,7 @@ if __name__ == "__main__":
 
     for ibatch, files_in_batch in enumerate(chunks(filenames, args.files_per_batch)): 
         #define our dataset
-        dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", ["Jet", "Muon", "Electron","TrigObj"], arrays_event)
+        dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", ["Jet", "Muon", "Electron"], arrays_event)
         dataset.get_cache_dir = lambda fn,loc=args.cache_location: os.path.join(loc, fn)
 
         if not args.from_cache:
@@ -413,15 +493,32 @@ if __name__ == "__main__":
             #save arrays for future use in cache
             dataset.to_cache(verbose=True, nthreads=args.nthreads)
 
+
         #Optionally, load the dataset from an uncompressed format
         else:
             print("loading dataset from cache")
             dataset.from_cache(verbose=True, nthreads=args.nthreads)
 
-            
+        if is_mc: 
+
             with open("samples_info.json") as json_file:
-                settings = json.load(json_file)
-                samples_info[args.sample]["ngen_weight"] = settings[args.sample]["ngen_weight"]
+                samples_info = json.load(json_file)
+
+            parameters["pu_corrections_target"] = load_puhist_target("data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root")
+
+            # add information for SF calculation
+            ext = extractor()
+            ext.add_weight_sets(["el_triggerSF SFs_ele_pt_ele_sceta_ele28_ht150_OR_ele35_2017BCDEF ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb_Data_MC_v5.0.histo.root"])
+            ext.add_weight_sets(["el_recoSF EGamma_SF2D ./data/egammaEffi_EGM2D_runBCDEF_passingRECO.histo.root"])
+            ext.add_weight_sets(["el_idSF EGamma_SF2D ./data/egammaEffi_EGM2D_runBCDEF_passingTight94X.histo.root"])
+            ext.add_weight_sets(["mu_triggerSF IsoMu27_PtEtaBins/pt_abseta_ratio ./data/EfficienciesAndSF_RunBtoF_Nov17Nov2017.histo.root"])
+            ext.add_weight_sets(["mu_isoSF NUM_TightRelIso_DEN_TightIDandIPCut_pt_abseta ./data/RunBCDEF_SF_ISO.histo.root"])
+            ext.add_weight_sets(["mu_idSF NUM_TightID_DEN_genTracks_pt_abseta ./data/RunBCDEF_SF_ID.histo.root"])
+
+            ext.add_weight_sets(["BTagSF * ./data/deepCSV_sfs_v2.btag.csv"])
+            ext.finalize()
+            evaluator = ext.make_evaluator()
+
 
         if ibatch == 0:
             print(dataset.printout())
@@ -432,13 +529,13 @@ if __name__ == "__main__":
             
             import time
             start = time.time()            
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model)
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model)
             print("time needed for file:", time.time()-start)       
              
         else:
             import time
             start = time.time()
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=None)
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=None)
             print("time needed for file:", time.time()-start)       
             
     print(results)
