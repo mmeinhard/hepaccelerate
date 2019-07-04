@@ -124,23 +124,51 @@ def load_puhist_target(filename):
     values_down = values_down / np.sum(values_down)
     return edges, (values_nominal, values_up, values_down)
 
-### trigger SF calculations
-def load_triggerhist_target(filename, histname):
-    fi = uproot.open(filename)
-    hist = fi[histname]
 
-    edges = np.array(hist.edges)
-    values = np.array(hist.values)
+# function to calculate lepton & trigger SFs
+def calculate_lepton_weights(lepton_pt, lepton_SuperClusterEta, lepton_eta, leptonFlavour, evaluator):
 
-    return edges, values
+    if not isinstance(lepton_pt, np.ndarray):
+        lepton_pt = NUMPY_LIB.asnumpy(lepton_pt)
+        lepton_eta = NUMPY_LIB.asnumpy(lepton_eta)
+        lepton_SuperClusterEta = NUMPY_LIB.asnumpy(lepton_SuperClusterEta)
 
-def compute_trigger_weight(trigger_corrections_target, var_x, var_y, weights):
+    # calculate all electron SFs
+    SF_trigger_el = NUMPY_LIB.array(evaluator["el_triggerSF"](lepton_pt, lepton_SuperClusterEta))
+    SF_ID_el = NUMPY_LIB.array(evaluator["el_idSF"](lepton_pt, lepton_SuperClusterEta))
+    SF_reco_el = NUMPY_LIB.array(evaluator["el_recoSF"](lepton_pt, lepton_SuperClusterEta))
 
-    edges, values = trigger_corrections_target   
- 
-    trigger_weights = NUMPY_LIB.zeros_like(weights)
-    ha.get_bin_contents2D(var_x, var_y, edges, values, trigger_weights)    
-    return trigger_weights
+    # calculate all muon SFs
+    SF_trigger_mu = NUMPY_LIB.array(evaluator["mu_triggerSF"](lepton_pt, np.abs(lepton_eta)))
+    SF_ID_mu = NUMPY_LIB.array(evaluator["mu_idSF"](lepton_pt, np.abs(lepton_eta)))
+    SF_iso_mu = NUMPY_LIB.array(evaluator["mu_isoSF"](lepton_pt, np.abs(lepton_eta)))
+
+    # combine all SFs to events weights
+    SF_trigger = NUMPY_LIB.add(NUMPY_LIB.where((leptonFlavour == 13), SF_trigger_mu, 0), NUMPY_LIB.where((leptonFlavour == 11), SF_trigger_el, 0))
+    SF_ID = NUMPY_LIB.add(NUMPY_LIB.where((leptonFlavour == 13), SF_ID_mu, 0), NUMPY_LIB.where((leptonFlavour == 11), SF_ID_el, 0))
+    SF_iso = NUMPY_LIB.add(NUMPY_LIB.where((leptonFlavour == 13), SF_iso_mu, 0), NUMPY_LIB.where((leptonFlavour == 11), SF_reco_el, 0))
+
+    lepton_SF = (SF_trigger * SF_ID * SF_iso)
+    return lepton_SF
+
+# function to calculate btwg weights
+def calculate_btagSF_jets(jets_eta, jets_pt, jets_discr, jets_hadronFlavour, evaluator):
+
+    if not isinstance(jets_pt, np.ndarray):
+        jets_pt = NUMPY_LIB.asnumpy(jets_pt)
+        jets_eta = NUMPY_LIB.asnumpy(jets_eta)
+        jets_discr = NUMPY_LIB.asnumpy(jets_discr)
+
+    SF_btag_0 = NUMPY_LIB.array(evaluator["BTagSFDeepCSV_3_iterativefit_central_0"](jets_eta, jets_pt, jets_discr))
+    SF_btag_1 = NUMPY_LIB.array(evaluator["BTagSFDeepCSV_3_iterativefit_central_1"](jets_eta, jets_pt, jets_discr))
+    SF_btag_2 = NUMPY_LIB.array(evaluator["BTagSFDeepCSV_3_iterativefit_central_2"](jets_eta, jets_pt, jets_discr))
+
+    SF_btag = NUMPY_LIB.where(jets_hadronFlavour == 5, SF_btag_0, 0) + NUMPY_LIB.where(jets_hadronFlavour == 4, SF_btag_1, 0) + NUMPY_LIB.where(jets_hadronFlavour == 0, SF_btag_2, 0)
+
+    return SF_btag
+
+
+# function to calculate Btagging weights
 
 def get_histogram(data, weights, bins):
     return Histogram(*ha.histogram_from_vector(data, weights, bins))
@@ -164,7 +192,6 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     jets = data["Jet"]
 
     nEvents = muons.numevents()
-
 
     # prepare event cuts
     mask_events = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.bool)
@@ -211,6 +238,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     leading_lepton_SuperClusterEta = ha.get_in_offsets(SuperClusterEta, electrons.offsets, inds, mask_events, good_electrons)
     nMuons =  ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8)
     nElectrons = ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8)
+    event_leptonFlavour = NUMPY_LIB.zeros(nEvents)
+    event_leptonFlavour[nMuons == 1] = 13
+    event_leptonFlavour[nElectrons == 1] = 11
 
 
     # calculate weights for MC samples
@@ -225,19 +255,13 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * pu_weights
 
         # calc trigger SF
-        SF_trigger_el = NUMPY_LIB.array(evaluator["el_triggerSF"](leading_lepton_pt, leading_lepton_SuperClusterEta))
-        SF_ID_el = NUMPY_LIB.array(evaluator["el_idSF"](leading_lepton_pt, leading_lepton_SuperClusterEta))
-        SF_reco_el = NUMPY_LIB.array(evaluator["el_recoSF"](leading_lepton_pt, leading_lepton_SuperClusterEta))
-        SF_trigger_mu = NUMPY_LIB.array(evaluator["mu_triggerSF"](leading_lepton_pt, NUMPY_LIB.abs(leading_lepton_eta)))
-        SF_ID_mu = NUMPY_LIB.array(evaluator["mu_idSF"](leading_lepton_pt, NUMPY_LIB.abs(leading_lepton_eta)))
-        SF_iso_mu = NUMPY_LIB.array(evaluator["mu_isoSF"](leading_lepton_pt, NUMPY_LIB.abs(leading_lepton_eta)))
-
-        SF_trigger = NUMPY_LIB.add(NUMPY_LIB.where((nMuons != 1), SF_trigger_mu, NUMPY_LIB.zeros(nEvents)), NUMPY_LIB.where((nElectrons != 1), SF_trigger_el, NUMPY_LIB.zeros(nEvents)))
-        SF_ID = NUMPY_LIB.add(NUMPY_LIB.where((nMuons != 1), SF_ID_mu, NUMPY_LIB.zeros(nEvents)), NUMPY_LIB.where((nElectrons != 1), SF_ID_el, NUMPY_LIB.zeros(nEvents)))
-        SF_iso = NUMPY_LIB.add(NUMPY_LIB.where((nMuons != 1), SF_iso_mu, NUMPY_LIB.zeros(nEvents)), NUMPY_LIB.where((nElectrons != 1), SF_reco_el, NUMPY_LIB.zeros(nEvents)))
-        weights["nominal"] = weights["nominal"] * SF_trigger * SF_ID * SF_iso
+        leptonSF = calculate_lepton_weights(leading_lepton_pt, leading_lepton_SuperClusterEta, leading_lepton_eta, event_leptonFlavour, evaluator)
+        weights["nominal"] = weights["nominal"] * leptonSF
 
         # calc btag weights
+        btagSF_jets = calculate_btagSF_jets(jets.eta, jets.pt, jets.btagDeepB, jets.hadronFlavour, evaluator)
+        btagSF = ha.multiply_in_offsets(jets, btagSF_jets, mask_events, good_jets)
+        weights["nominal"] = weights["nominal"] * btagSF
 
     #in case of data: check if event is in golden lumi file
     if not is_mc and not (lumimask is None):
@@ -382,7 +406,7 @@ if __name__ == "__main__":
  
     #define arrays to load: these are objects that will be kept together 
     arrays_objects = [
-        "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass",
+        "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass", "Jet_hadronFlavour",
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge",
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy",
     ]
@@ -400,7 +424,7 @@ if __name__ == "__main__":
     if args.sample.startswith("TT"):
         arrays_event.append("genTtbarId")
 
-    if not "Run" in args.sample:
+    if is_mc:
         arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight"]  
 
     parameters = {
