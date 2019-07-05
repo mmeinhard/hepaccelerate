@@ -13,6 +13,18 @@ def searchsorted_devfunc(arr, val):
             break
     return ret
 
+@numba.jit(fastmath=True)
+def searchsorted_devfunc2D(arr_x, arr_y, val_x, val_y):
+    ret = -1
+    for i in range(len(arr_x)):
+        for j in range(len(arr_y)):
+            #if val <= arr[i]:
+            if val_x < arr_x[i+1] and val_y <arr_y[i+1]:
+                ret_i = i
+                ret_j = j
+                break
+    return ret_i, ret_j
+
 #need atomics to add to bin contents
 @numba.jit
 def fill_histogram(data, weights, bins, out_w, out_w2):
@@ -63,7 +75,21 @@ def sum_in_offsets_kernel(content, offsets, mask_rows, mask_content, out):
         for ielem in range(start, end):
             if mask_content[ielem]:
                 out[iev] += content[ielem]
-            
+
+@numba.njit(parallel=True)
+def multiply_in_offsets_kernel(content, offsets, mask_rows, mask_content, out):
+
+    for iev in numba.prange(offsets.shape[0]-1):
+        if not mask_rows[iev]:
+            continue
+
+        start = offsets[iev]
+        end = offsets[iev + 1]
+        for ielem in range(start, end):
+            if mask_content[ielem]:
+                out[iev] *= content[ielem]    
+       
+ 
 @numba.njit(parallel=True)
 def max_in_offsets_kernel(content, offsets, mask_rows, mask_content, out):
 
@@ -210,6 +236,13 @@ def sum_in_offsets(struct, content, mask_rows, mask_content, dtype=None):
     sum_in_offsets_kernel(content, struct.offsets, mask_rows, mask_content, sum_offsets)
     return sum_offsets
 
+def multiply_in_offsets(struct, content, mask_rows, mask_content, dtype=None):
+    if not dtype:
+        dtype = content.dtype
+    product_offsets = np.ones(len(struct.offsets) - 1, dtype=dtype)
+    multiply_in_offsets_kernel(content, struct.offsets, mask_rows, mask_content, product_offsets)
+    return product_offsets
+
 def max_in_offsets(struct, content, mask_rows, mask_content):
     max_offsets = np.zeros(len(struct.offsets) - 1, dtype=content.dtype)
     max_in_offsets_kernel(content, struct.offsets, mask_rows, mask_content, max_offsets)
@@ -322,6 +355,16 @@ For all events (N), mask the objects in the first collection (M1) if they are cl
 
 """
 @numba.njit(parallel=True)
+def get_lepton_SF_kernel(el_pt, el_eta, mu_pt, mu_eta, pdg_id, evaluator, name, out):
+    
+    for iev in numba.prange(len(var_x)):
+        if pdg_id == 11:
+           out[iev] = evaluator["el_"+name](el_pt[iev], el_eta[iev]) 
+        if pdg_id == 13:
+           out[iev] = evaluator["mu_"+name](mu_pt[iev], mu_eta[iev]) 
+            
+
+@numba.njit(parallel=True)
 def mask_deltar_first_kernel(etas1, phis1, mask1, offsets1, etas2, phis2, mask2, offsets2, dr2, mask_out):
     
     for iev in numba.prange(len(offsets1)-1):
@@ -365,8 +408,8 @@ def mask_deltar_first(objs1, mask1, objs2, mask2, drcut):
     return mask_out
 
 def histogram_from_vector(data, weights, bins):        
-    out_w = np.zeros(len(bins) - 1, dtype=np.float32)
-    out_w2 = np.zeros(len(bins) - 1, dtype=np.float32)
+    out_w = np.zeros(len(bins) - 1, dtype=np.float64)
+    out_w2 = np.zeros(len(bins) - 1, dtype=np.float64)
     fill_histogram(data, weights, bins, out_w, out_w2)
     return out_w, out_w2, bins
     
@@ -382,3 +425,8 @@ def get_bin_contents(values, edges, contents, out):
     assert(values.shape == out.shape)
     assert(edges.shape[0] == contents.shape[0]+1)
     get_bin_contents_kernel(values, edges, contents, out)
+
+def get_lepton_SF(el_pt, el_eta, mu_pt, mu_eta, pdg_id, evaluator, name):
+    out = np.zeros(len(pdg_id), dtype=np.float32) 
+    get_lepton_SF_kernel(el_pt, el_eta, mu_pt, mu_eta, pdg_id, evaluator, name, out)
+    return out

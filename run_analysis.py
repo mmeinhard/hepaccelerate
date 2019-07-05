@@ -15,6 +15,8 @@ from keras.models import load_model
 import itertools
 from losses import mse0,mae0,r2_score0
 
+import lib_analysis
+from lib_analysis import vertex_selection, lepton_selection, jet_selection, load_puhist_target, compute_pu_weights, compute_lepton_weights, compute_btag_weights, chunks
 
 from fnal_column_analysis_tools.lumi_tools import LumiMask, LumiData
 from fnal_column_analysis_tools.lookup_tools import extractor
@@ -27,173 +29,18 @@ config = tf.ConfigProto()
 config.gpu_options.allow_growth=True
 sess = tf.Session(config=config)
 
-def chunks(l, n):
-    """Yield successive n-sized chunks from l."""
-    for i in range(0, len(l), n):
-        yield l[i:i + n]
-
-### function for primary vertex selection
-def vertex_selection(scalars, mask_events):
-
-    PV_isfake = (scalars["PV_score"] == 0) & (scalars["PV_chi2"] == 0)
-    PV_rho = NUMPY_LIB.sqrt(scalars["PV_x"]**2 + scalars["PV_y"]**2) 
-    mask_events = mask_events & (~PV_isfake) & (scalars["PV_ndof"] > 4) & (scalars["PV_z"]<24) & (PV_rho < 2)
-
-    return mask_events 
-
-### function for lepton selection
-def lepton_selection(leps, cuts):
-
-    passes_eta = (NUMPY_LIB.abs(leps.eta) < cuts["eta"])
-    passes_subleading_pt = (leps.pt > cuts["subleading_pt"])
-    passes_leading_pt = (leps.pt > cuts["leading_pt"])
-
-    if cuts["type"] == "el":
-        sca = NUMPY_LIB.abs(leps.deltaEtaSC + leps.eta)
-        passes_id = (leps.cutBased >= 4)
-        passes_SC = NUMPY_LIB.invert((sca >= 1.4442) & (sca <= 1.5660))
-        # cuts taken from: https://twiki.cern.ch/twiki/bin/view/CMS/CutBasedElectronIdentificationRun2#Working_points_for_92X_and_later
-        passes_impact = ((leps.dz < 0.10) & (sca <= 1.479)) | ((leps.dz < 0.20) & (sca > 1.479)) | ((leps.dxy < 0.05) & (sca <= 1.479)) | ((leps.dxy < 0.1) & (sca > 1.479))      
-        #passes_id = ( (leps.cutBased >= 4) & NUMPY_LIB.invert( (sca>=1.4442) & (sca<1.5669)) & ( ((leps.dz < 0.10) & (sca <= 1.479)) | ((leps.dz < 0.20) & (sca > 1.479)) ) & ( ((leps.dxy < 0.05) & (sca <= 1.478)) | ((leps.dxy < 0.1) & (sca > 1.479)) ))
-
-        #select electrons
-        good_leps = passes_eta & passes_leading_pt & passes_id & passes_SC & passes_impact
-        veto_leps = passes_eta & passes_subleading_pt & NUMPY_LIB.invert(good_leps) & passes_id & passes_SC & passes_impact
-    
-    elif cuts["type"] == "mu":
-        passes_leading_iso = (leps.pfRelIso04_all < cuts["leading_iso"])
-        passes_subleading_iso = (leps.pfRelIso04_all < cuts["subleading_iso"])
-        passes_id = (leps.tightId == 1)
-
-        #select muons
-        good_leps = passes_eta & passes_leading_pt & passes_leading_iso & passes_id
-        veto_leps = passes_eta & passes_subleading_pt & passes_subleading_iso & passes_id & NUMPY_LIB.invert(good_leps)
-    
-    return good_leps, veto_leps
-
-### function for jet selection
-def jet_selection(jets, leps, mask_leps, cuts):
-
-    jets_pass_dr = ha.mask_deltar_first(jets, jets.masks["all"], leps, mask_leps, cuts["dr"])
-    jets.masks["pass_dr"] = jets_pass_dr
-    good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & (jets.puId>=cuts["puId"]) & jets_pass_dr
-
-    return good_jets
-
-### get number of processed events weighted
-def count_weighted(filenames):
-    sumw = 0
-    for fi in filenames:
-        ff = uproot.open(fi)
-        bl = ff.get("Runs")
-        sumw += bl.array("genEventSumw").sum()
-    return sumw
-
-### pileup weight
-def compute_pu_weights(pu_corrections_target, weights, mc_nvtx, reco_nvtx):
-    pu_edges, (values_nom, values_up, values_down) = pu_corrections_target
-
-    src_pu_hist = get_histogram(mc_nvtx, weights, pu_edges)
-    norm = sum(src_pu_hist.contents)
-    src_pu_hist.contents = src_pu_hist.contents/norm
-    src_pu_hist.contents_w2 = src_pu_hist.contents_w2/norm
-
-    ratio = values_nom / src_pu_hist.contents
-    remove_inf_nan(ratio)
-    pu_weights = NUMPY_LIB.zeros_like(weights)
-    ha.get_bin_contents(reco_nvtx, NUMPY_LIB.array(pu_edges), NUMPY_LIB.array(ratio), pu_weights)
-    #fix_large_weights(pu_weights)
-
-    return pu_weights
-
-
-def load_puhist_target(filename):
-    fi = uproot.open(filename)
-
-    h = fi["pileup"]
-    edges = np.array(h.edges)
-    values_nominal = np.array(h.values)
-    values_nominal = values_nominal / np.sum(values_nominal)
-
-    h = fi["pileup_plus"]
-    values_up = np.array(h.values)
-    values_up = values_up / np.sum(values_up)
-
-    h = fi["pileup_minus"]
-    values_down = np.array(h.values)
-    values_down = values_down / np.sum(values_down)
-    return edges, (values_nominal, values_up, values_down)
-
-
-# function to calculate lepton & trigger SFs
-def calculate_lepton_weights(lepton_pt, lepton_SuperClusterEta, lepton_eta, leptonFlavour, evaluator):
-
-    if not isinstance(lepton_pt, np.ndarray):
-        lepton_pt = NUMPY_LIB.asnumpy(lepton_pt)
-        lepton_eta = NUMPY_LIB.asnumpy(lepton_eta)
-        lepton_SuperClusterEta = NUMPY_LIB.asnumpy(lepton_SuperClusterEta)
-
-    # calculate all electron SFs
-    SF_trigger_el = NUMPY_LIB.array(evaluator["el_triggerSF"](lepton_pt, lepton_SuperClusterEta))
-    SF_ID_el = NUMPY_LIB.array(evaluator["el_idSF"](lepton_pt, lepton_SuperClusterEta))
-    SF_reco_el = NUMPY_LIB.array(evaluator["el_recoSF"](lepton_pt, lepton_SuperClusterEta))
-
-    # calculate all muon SFs
-    SF_trigger_mu = NUMPY_LIB.array(evaluator["mu_triggerSF"](lepton_pt, np.abs(lepton_eta)))
-    SF_ID_mu = NUMPY_LIB.array(evaluator["mu_idSF"](lepton_pt, np.abs(lepton_eta)))
-    SF_iso_mu = NUMPY_LIB.array(evaluator["mu_isoSF"](lepton_pt, np.abs(lepton_eta)))
-
-    # combine all SFs to events weights
-    SF_trigger = NUMPY_LIB.add(NUMPY_LIB.where((leptonFlavour == 13), SF_trigger_mu, 0), NUMPY_LIB.where((leptonFlavour == 11), SF_trigger_el, 0))
-    SF_ID = NUMPY_LIB.add(NUMPY_LIB.where((leptonFlavour == 13), SF_ID_mu, 0), NUMPY_LIB.where((leptonFlavour == 11), SF_ID_el, 0))
-    SF_iso = NUMPY_LIB.add(NUMPY_LIB.where((leptonFlavour == 13), SF_iso_mu, 0), NUMPY_LIB.where((leptonFlavour == 11), SF_reco_el, 0))
-
-    lepton_SF = (SF_trigger * SF_ID * SF_iso)
-    return lepton_SF
-
-# function to calculate btwg weights
-def calculate_btagSF_jets(jets_eta, jets_pt, jets_discr, jets_hadronFlavour, evaluator):
-
-    if not isinstance(jets_pt, np.ndarray):
-        jets_pt = NUMPY_LIB.asnumpy(jets_pt)
-        jets_eta = NUMPY_LIB.asnumpy(jets_eta)
-        jets_discr = NUMPY_LIB.asnumpy(jets_discr)
-
-    SF_btag_0 = NUMPY_LIB.array(evaluator["BTagSFDeepCSV_3_iterativefit_central_0"](jets_eta, jets_pt, jets_discr))
-    SF_btag_1 = NUMPY_LIB.array(evaluator["BTagSFDeepCSV_3_iterativefit_central_1"](jets_eta, jets_pt, jets_discr))
-    SF_btag_2 = NUMPY_LIB.array(evaluator["BTagSFDeepCSV_3_iterativefit_central_2"](jets_eta, jets_pt, jets_discr))
-
-    SF_btag = NUMPY_LIB.where(jets_hadronFlavour == 5, SF_btag_0, 0) + NUMPY_LIB.where(jets_hadronFlavour == 4, SF_btag_1, 0) + NUMPY_LIB.where(jets_hadronFlavour == 0, SF_btag_2, 0)
-
-    return SF_btag
-
-
-# function to calculate Btagging weights
-
-def get_histogram(data, weights, bins):
-    return Histogram(*ha.histogram_from_vector(data, weights, bins))
-
-def remove_inf_nan(arr):
-    arr[np.isinf(arr)] = 0
-    arr[np.isnan(arr)] = 0
-    arr[arr < 0] = 0
-
-
 #This function will be called for every file in the dataset
 def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, lumimask=None, cat=False, DNN=False, DNN_model=None):
     #Output structure that will be returned and added up among the files.
     #Should be relatively small.
     ret = Results()
 
-    # get basic objetcs
     muons = data["Muon"]
     electrons = data["Electron"]
     scalars = data["eventvars"]
     jets = data["Jet"]
-
     nEvents = muons.numevents()
 
-    # prepare event cuts
     mask_events = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.bool)
 
     # apply event cleaning, PV selection and trigger selection
@@ -211,14 +58,11 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     # apply object selection for muons, electrons, jets
     good_muons, veto_muons = lepton_selection(muons, parameters["muons"])
     good_electrons, veto_electrons = lepton_selection(electrons, parameters["electrons"])
-    good_jets = jet_selection(jets, muons, veto_muons, parameters["jets"]) & jet_selection(jets, electrons, veto_electrons, parameters["jets"]) & jet_selection(jets, muons, good_muons, parameters["jets"]) & jet_selection(jets, electrons, good_electrons, parameters["jets"])
+    good_jets = jet_selection(jets, muons, (veto_muons | good_muons), parameters["jets"]) & jet_selection(jets, electrons, (veto_electrons | good_electrons) , parameters["jets"])
     bjets = good_jets & (jets.btagDeepB > 0.4941)
 
-    # apply event selection
-    #nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
+    # apply basic event selection -> individual categories cut later
     nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
-
-    #SL = (ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8) == 1) ^ (ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8) == 1)
     lepton_veto = NUMPY_LIB.add(ha.sum_in_offsets(muons, veto_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, veto_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
     njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
@@ -226,21 +70,12 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
 
-    # in this section, we calculate all needed variables
+    # calculation of all needed variables
     # get control variables
     inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
     leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
     leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
     leading_lepton_eta = ha.get_in_offsets(muons.eta, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.eta, electrons.offsets, inds, mask_events, good_electrons)
-
-    # variables for trigger SFs
-    SuperClusterEta = (electrons.deltaEtaSC + electrons.eta)
-    leading_lepton_SuperClusterEta = ha.get_in_offsets(SuperClusterEta, electrons.offsets, inds, mask_events, good_electrons)
-    nMuons =  ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8)
-    nElectrons = ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8)
-    event_leptonFlavour = NUMPY_LIB.zeros(nEvents)
-    event_leptonFlavour[nMuons == 1] = 13
-    event_leptonFlavour[nElectrons == 1] = 11
 
 
     # calculate weights for MC samples
@@ -250,52 +85,23 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     if is_mc:
         weights["nominal"] = weights["nominal"] * scalars["genWeight"] * parameters["lumi"] * samples_info[sample]["XS"] / samples_info[sample]["ngen_weight"]
         
-        # calc pu corrections
+        # pu corrections
         pu_weights = compute_pu_weights(parameters["pu_corrections_target"], weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
         weights["nominal"] = weights["nominal"] * pu_weights
 
-        # calc trigger SF
-        leptonSF = calculate_lepton_weights(leading_lepton_pt, leading_lepton_SuperClusterEta, leading_lepton_eta, event_leptonFlavour, evaluator)
-        weights["nominal"] = weights["nominal"] * leptonSF
+        # lepton SF corrections
+        electron_weights = compute_lepton_weights(electrons, electrons.pt, (electrons.deltaEtaSC + electrons.eta), mask_events, good_electrons, evaluator, ["el_triggerSF", "el_recoSF", "el_idSF"])
+        muon_weights = compute_lepton_weights(muons, muons.pt, NUMPY_LIB.abs(muons.eta), mask_events, good_muons, evaluator, ["mu_triggerSF", "mu_isoSF", "mu_idSF"])
+        weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
 
-        # calc btag weights
-        btagSF_jets = calculate_btagSF_jets(jets.eta, jets.pt, jets.btagDeepB, jets.hadronFlavour, evaluator)
-        btagSF = ha.multiply_in_offsets(jets, btagSF_jets, mask_events, good_jets)
-        weights["nominal"] = weights["nominal"] * btagSF
+        # btag SF corrections
+        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator)
+        weights["nominal"] = weights["nominal"] * btag_weights
 
     #in case of data: check if event is in golden lumi file
     if not is_mc and not (lumimask is None):
         mask_lumi = lumimask(scalars["run"], scalars["luminosityBlock"])
         mask_events = mask_events & mask_lumi
-
-    if DNN:
-
-        import time
-        start = time.time()
-
-        jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
-        met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
-        leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
-
-        inputs = [jets_feats, leps_feats, met_feats]
-
-        if DNN.startswith("ffwd"):
-            inputs = [NUMPY_LIB.reshape(x, (x.shape[0], -1)) for x in inputs]
-            inputs = NUMPY_LIB.hstack(inputs)           
-            inputs = NUMPY_LIB.asnumpy(inputs)
- 
-        if DNN.startswith("cmb"):
-            if not isinstance(jets_feats, np.ndarray):
-                inputs = [NUMPY_LIB.asnumpy(x) for x in inputs]
-
-        if jets_feats.shape[0] == 0:
-            DNN_pred = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.float32)
-        else:
-            DNN_pred = DNN_model.predict(inputs, batch_size = 10000)
-            DNN_pred = NUMPY_LIB.array(DNN_model.predict(inputs, batch_size = 10000))
-            if DNN.endswith("binary"):
-                DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
-            print("time needed to pred model:", (time.time() - start))
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
@@ -306,7 +112,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         processes["ttb"] = mask_events & (ttCls ==51) 
         processes["ttcc"] = mask_events & (ttCls >=41) & (ttCls <=45) 
         ttHF =  ((ttCls >=53) & (ttCls <=56)) | (ttCls ==52) | (ttCls ==51) | ((ttCls >=41) & (ttCls <=45))
-        processes["ttlf"] = mask_events & (~ttHF)
+        processes["ttlf"] = mask_events & NUMPY_LIB.invert(ttHF)
     else:
         processes["unsplit"] = mask_events
         
@@ -388,9 +194,14 @@ if __name__ == "__main__":
     parser.add_argument('--path-to-model', action='store', help='path to DNN model', type=str, default=None, required=False)
     parser.add_argument('filenames', nargs=argparse.REMAINDER)
     args = parser.parse_args()
- 
+
+    # set CPU or GPU backend 
     NUMPY_LIB, ha = choose_backend(args.use_cuda)
+    lib_analysis.NUMPY_LIB, lib_analysis.ha = NUMPY_LIB, ha
     NanoAODDataset.numpy_lib = NUMPY_LIB
+
+    # load definitions
+    from definitions_analysis import parameters, samples_info
 
     outdir = args.outdir
     if not os.path.exists(outdir):
@@ -398,7 +209,7 @@ if __name__ == "__main__":
 
     if "Run" in args.sample:
         is_mc = False
-        lumimask = LumiMask("data/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON.txt") 
+        lumimask = LumiMask(parameters["lumimask"]) 
     else:
         is_mc = True
         lumimask = None  
@@ -427,52 +238,6 @@ if __name__ == "__main__":
     if is_mc:
         arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight"]  
 
-    parameters = {
-        "muons": {
-                    "type": "mu",
-                    "leading_pt": 29,
-                    "subleading_pt": 15,
-                    "eta": 2.4,
-                    "leading_iso": 0.15,
-                    "subleading_iso": 0.25,
-                    },
-
-        "electrons" : {
-                        "type": "el",
-                        "leading_pt": 30,
-                        "subleading_pt": 15,
-                        "eta": 2.4
-                        },
-        "jets": {
-                "dr": 0.4,
-                "pt": 30,
-                "eta": 2.4,
-                "jetId": 2,
-                "puId": 4
-        },
-        "lumi":  41529.0,
-    }
-
-    samples_info = {
-        "ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8" : {
-            "process" : "ttHTobb",
-            "XS" : 0.2934045,
-        },
-        "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
-            "XS": 365.45736135,
-        },
-        "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8" : {
-            "process" : "ttHToNonbb",
-            "XS" : 0.2150955,
-        },
-        "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8" : {
-            "XS" : 88.341903326,
-        },
-        "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8" : {
-            "XS" : 377.9607353256,
-        }
-    }
-
     filenames = None
     if not args.filelist is None:
         filenames = [l.strip() for l in open(args.filelist).readlines()]
@@ -487,18 +252,6 @@ if __name__ == "__main__":
             raise Exception("Must supply ROOT filename, but got {0}".format(fn))
 
     results = Results()
-
-    """
-    if is_mc and not args.use_cuda:
-        with open("samples_info.json", "r") as jsonFile:
-            samples_info = json.load(jsonFile)
-
-        samples_info[args.sample]["ngen_weight"] = count_weighted(filenames)
-
-        print("Sum of events (weighted by generator weight:)", samples_info[args.sample]["ngen_weight"])
-        with open("samples_info.json", "w") as jsonFile:
-            json.dump(samples_info, jsonFile)
-    """
 
 
     for ibatch, files_in_batch in enumerate(chunks(filenames, args.files_per_batch)): 
@@ -525,21 +278,12 @@ if __name__ == "__main__":
 
         if is_mc: 
 
-            with open("samples_info.json") as json_file:
-                samples_info = json.load(json_file)
+            # add information needed for MC corrections
+            parameters["pu_corrections_target"] = load_puhist_target(parameters["pu_corrections_file"])
 
-            parameters["pu_corrections_target"] = load_puhist_target("data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root")
-
-            # add information for SF calculation
             ext = extractor()
-            ext.add_weight_sets(["el_triggerSF SFs_ele_pt_ele_sceta_ele28_ht150_OR_ele35_2017BCDEF ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb_Data_MC_v5.0.histo.root"])
-            ext.add_weight_sets(["el_recoSF EGamma_SF2D ./data/egammaEffi_EGM2D_runBCDEF_passingRECO.histo.root"])
-            ext.add_weight_sets(["el_idSF EGamma_SF2D ./data/egammaEffi_EGM2D_runBCDEF_passingTight94X.histo.root"])
-            ext.add_weight_sets(["mu_triggerSF IsoMu27_PtEtaBins/pt_abseta_ratio ./data/EfficienciesAndSF_RunBtoF_Nov17Nov2017.histo.root"])
-            ext.add_weight_sets(["mu_isoSF NUM_TightRelIso_DEN_TightIDandIPCut_pt_abseta ./data/RunBCDEF_SF_ISO.histo.root"])
-            ext.add_weight_sets(["mu_idSF NUM_TightID_DEN_genTracks_pt_abseta ./data/RunBCDEF_SF_ID.histo.root"])
-
-            ext.add_weight_sets(["BTagSF * ./data/deepCSV_sfs_v2.btag.csv"])
+            for corr in parameters["corrections"]:
+                ext.add_weight_sets([corr])
             ext.finalize()
             evaluator = ext.make_evaluator()
 
@@ -547,23 +291,16 @@ if __name__ == "__main__":
         if ibatch == 0:
             print(dataset.printout())
 
-        #Run the analyze_data function on all files
+        # in case of DNN evaluation: load model
+        model = None
         if args.DNN:
             model = load_model(args.path_to_model, custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
             
-            import time
-            start = time.time()            
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model)
-            print("time needed for file:", time.time()-start)       
+        #### this is where the magic happens: run the main analysis
+        results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model)
              
-        else:
-            import time
-            start = time.time()
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=None)
-            print("time needed for file:", time.time()-start)       
             
     print(results)
-    #print("Efficiency of dimuon events: {0:.2f}".format(results["events_dimuon"]/results["num_events"]))
     
     #Save the results 
     results.save_json(outdir + "/out_{}.json".format(args.sample))

@@ -19,6 +19,18 @@ def searchsorted_devfunc(arr, val):
             break
     return ret
 
+@cuda.jit(device=True)
+def searchsorted_devfunc2D(arr_x, arr_y, val_x, val_y):
+    ret = -1
+    for i in range(len(arr_x)):
+        for j in range(len(arr_y)):
+            #if val <= arr[i]:
+            if val_x < arr_x[i+1] and val_y <arr_y[i+1]:
+                ret_i = i
+                ret_j = j
+                break
+    return ret_i, ret_j
+
 @cuda.jit
 def searchsorted_kernel(vals, arr, inds_out):
     xi = cuda.grid(1)
@@ -367,10 +379,25 @@ def get_bin_contents_cudakernel(values, edges, contents, out):
         if ibin>=0 and ibin < len(contents):
             out[i] = contents[ibin]
 
+@cuda.jit
+def get_bin_contents2D_cudakernel(values_x, values_y, edges_x, edges_y, contents, out):
+    xi = cuda.grid(1)
+    xstride = cuda.gridsize(1)
+
+    for i in range(xi, len(values_x), xstride):
+        v_x = values_x[i]
+        v_y = values_y[i]
+        ibin, jbin = searchsorted_devfunc2D(edges_x, edges_y, v_x, v_y)
+        if ibin>=0 and ibin < contents.shape[0] and jbin>=0 and jbin < contents.shape[1]:
+            out[i] = contents[ibin, jbin]
+
 def get_bin_contents(values, edges, contents, out):
     assert(values.shape == out.shape)
     assert(edges.shape[0] == contents.shape[0]+1)
     get_bin_contents_cudakernel[32, 1024](values, edges, contents, out)
+
+def get_bin_contents2D(values_x, values_y, edges, contents, out):
+    get_bin_contents2D_cudakernel(values_x, values_y, edges[0], edges[1], contents, out)
 
 def calc_px(content_pt, content_phi):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
