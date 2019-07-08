@@ -31,7 +31,7 @@ find /nvmedata/store/mc/RunIIFall17NanoAOD/ttHTobb_M125_TuneCP5_13TeV-powheg-pyt
 In order to process the analysis, simply run:
 ~~~
 #Run the test analysis
-PYTHONPATH=.:$PYTHONPATH python3 run_analysis.py --filelist filelist.txt --sample ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8
+PYTHONPATH=hepaccelerate:coffea:. python3 run_analysis.py --filelist filelist.txt --sample ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8
 
 #output will be stored in this json
 cat out_ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8.json
@@ -39,10 +39,10 @@ cat out_ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8.json
 This script loads the ROOT files, prepares local caches from the branches you read and processes the data. The output file contains the weighted histograms.
 ~~~
 #second time around, you can load the data from the cache, which is much faster
-PYTHONPATH=.:$PYTHONPATH python3 run_analysis.py --filelist filelist.txt --sample ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8 --from-cache
+PYTHONPATH=hepaccelerate:coffea:. python3 run_analysis.py --filelist filelist.txt --sample ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8 --from-cache
 
 #use CUDA for array processing on a GPU!
-PYTHONPATH=.:$PYTHONPATH python3 tests/simple.py --filelist filelist.txt --from-cache --use-cuda
+PYTHONPATH=hepaccelerate:coffea:. python3 run_analysis.py --filelist filelist.txt --sample ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8 --from-cache --use-cuda
 ~~~
 
 Object definitions, event selection cuts and files needed for scale factor calculations can be found in `definitions_analysis.py`. 
