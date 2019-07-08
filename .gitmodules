@@ -1,0 +1,3 @@
+[submodule "coffea"]
+	path = coffea
+	url = git@github.com:chreissel/coffea.git
