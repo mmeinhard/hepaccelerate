@@ -103,6 +103,21 @@ def sum_in_offsets_cudakernel(content, offsets, mask_rows, mask_content, out):
         for ielem in range(start, end):
             if mask_content[ielem]:
                 out[iev] += content[ielem]
+
+@cuda.jit
+def multiply_in_offsets_cudakernel(content, offsets, mask_rows, mask_content, out):
+    xi = cuda.grid(1)
+    xstride = cuda.gridsize(1)
+
+    for iev in range(xi, offsets.shape[0]-1, xstride):
+        if not mask_rows[iev]:
+            continue
+
+        start = offsets[iev]
+        end = offsets[iev + 1]
+        for ielem in range(start, end):
+            if mask_content[ielem]:
+                out[iev] *= content[ielem]
             
 @cuda.jit
 def max_in_offsets_cudakernel(content, offsets, mask_rows, mask_content, out):
@@ -274,6 +289,13 @@ def sum_in_offsets(struct, content, mask_rows, mask_content, dtype=None):
     sum_in_offsets_cudakernel[32, 1024](content, struct.offsets, mask_rows, mask_content, sum_offsets)
     cuda.synchronize()
     return sum_offsets
+
+def multiply_in_offsets(struct, content, mask_rows, mask_content, dtype=None):
+    if not dtype:
+        dtype = content.dtype
+    product_offsets = cupy.ones(len(struct.offsets) - 1, dtype=dtype)
+    multiply_in_offsets_cudakernel[32, 1024](content, struct.offsets, mask_rows, mask_content, product_offsets)
+    return product_offsets
 
 def max_in_offsets(struct, content, mask_rows, mask_content):
     max_offsets = cupy.zeros(len(struct.offsets) - 1, dtype=content.dtype)
