@@ -18,8 +18,8 @@ from losses import mse0,mae0,r2_score0
 import lib_analysis
 from lib_analysis import vertex_selection, lepton_selection, jet_selection, load_puhist_target, compute_pu_weights, compute_lepton_weights, compute_btag_weights, chunks
 
-from fnal_column_analysis_tools.lumi_tools import LumiMask, LumiData
-from fnal_column_analysis_tools.lookup_tools import extractor
+#from fnal_column_analysis_tools.lumi_tools import LumiMask, LumiData
+#from fnal_column_analysis_tools.lookup_tools import extractor
 
 #config = tf.ConfigProto()
 #config.gpu_options.per_process_gpu_memory_fraction = 0.5
@@ -199,6 +199,16 @@ if __name__ == "__main__":
     NUMPY_LIB, ha = choose_backend(args.use_cuda)
     lib_analysis.NUMPY_LIB, lib_analysis.ha = NUMPY_LIB, ha
     NanoAODDataset.numpy_lib = NUMPY_LIB
+
+    if args.use_cuda:
+        os.environ["HEPACCELERATE_CUDA"] = "1" 
+    else:
+        os.environ["HEPACCELERATE_CUDA"] = "0"
+
+    from coffea.util import USE_CUPY        
+    from coffea.lumi_tools import LumiMask, LumiData
+    from coffea.lookup_tools import extractor
+
 
     # load definitions
     from definitions_analysis import parameters, samples_info
