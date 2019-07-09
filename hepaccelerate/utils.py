@@ -247,7 +247,8 @@ class NanoAODDataset(Dataset):
     def build_structs(self, prefix): 
         struct_array = [
             JaggedStruct.from_arraydict(
-                {k: v for k, v in arrs.items() if prefix in str(k)},
+#                {k: v for k, v in arrs.items() if prefix in str(k)},
+                {k: v for k, v in arrs.items() if k.decode().startswith(prefix)}, # the decode() method is used to compare the string (prefix) with the byte string (k)
                 prefix, self.numpy_lib 
             ) for arrs in self.data_host
         ]
