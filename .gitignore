@@ -1,0 +1,10 @@
+data/*.hdf5
+.ipynb_checkpoints/
+__pycache__/
+cache
+hepaccelerate/__pycache__/
+*.json
+*.txt
+submit_cpu.sh
+submit_gpu.sh
+slurm-*.out
