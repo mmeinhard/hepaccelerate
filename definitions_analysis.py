@@ -19,11 +19,19 @@ parameters = {
                     "eta": 2.4
                     },
     "jets": {
+            "type": "jet",
             "dr": 0.4,
             "pt": 30,
             "eta": 2.4,
             "jetId": 2,
             "puId": 4
+    },
+    "fatjets": {
+               "type": "fatjet",
+               "dr": 0.8,
+               "pt": 200,
+               "eta": 2.4,
+               "jetId": 2
     },
     "lumi":  41529.0,
     "lumimask": "data/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON.txt",
@@ -64,6 +72,19 @@ samples_info = {
     "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 377.9607353256, 
             "ngen_weight": 1647945788.3386502
-            }
+            },
+
+    "TTTo2L2Nu_TuneCP5_13TeV-powheg-pythia8": {
+            "XS": 88.341903326, 
+            "ngen_weight": 283000430.5968169
+            }, 
+    "TTToHadronic_TuneCP5_13TeV-powheg-pythia8": {
+            "XS": 377.9607353256, 
+            "ngen_weight": 1647945788.3386502
+            },
+    "TTToSemiLeptonic_TuneCP5_13TeV-powheg-pythia8": {
+            "XS": 365.45736135, 
+            "ngen_weight": 720253370.0403845
+            }, 
 }
 
