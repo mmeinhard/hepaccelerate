@@ -13,6 +13,10 @@ def searchsorted_devfunc(arr, val):
     if val > arr[-1]:
         return len(arr)
 
+    #underflow bin will not be filled
+    if val < arr[0]:
+        return -1
+
     for i in range(len(arr)):
         if val < arr[i+1]:
             ret = i
@@ -316,7 +320,8 @@ def select_muons_opposite_sign(muons, in_mask):
     return out_mask
 
 def get_in_offsets(content, offsets, indices, mask_rows, mask_content):
-    out = cupy.zeros(len(offsets) - 1, dtype=content.dtype)
+    #out = cupy.zeros(len(offsets) - 1, dtype=content.dtype)
+    out = -999.*cupy.ones(len(offsets) - 1, dtype=content.dtype) #to avoid histos being filled with 0 for non-existing objects, i.e. in events with no fat jets
     get_in_offsets_cudakernel[32, 1024](content, offsets, indices, mask_rows, mask_content, out)
     cuda.synchronize()
     return out
