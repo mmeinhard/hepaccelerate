@@ -77,7 +77,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     met = (scalars["MET_pt"] > 20)
 
-#    mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
+    #mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
     mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & NUMPY_LIB.invert( (njets >= 4) & (btags >=2) ) & met
 
     ### remove AK4 jets overlapping with a AK8 jet
@@ -94,8 +94,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
     leading_jet_eta = ha.get_in_offsets(jets.eta, jets.offsets, inds, mask_events, good_jets)
 #    leading_jet_mass = ha.get_in_offsets(jets.mass, jets.offsets, inds, mask_events, good_jets)
-    leading_lepton_pt = ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons)
-    leading_lepton_eta = ha.get_in_offsets(muons.eta, muons.offsets, inds, mask_events, good_muons) + ha.get_in_offsets(electrons.eta, electrons.offsets, inds, mask_events, good_electrons)
+    leading_lepton_pt = NUMPY_LIB.maximum(ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons), ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons))
+    leading_lepton_eta = NUMPY_LIB.maximum(ha.get_in_offsets(muons.eta, muons.offsets, inds, mask_events, good_muons), ha.get_in_offsets(electrons.eta, electrons.offsets, inds, mask_events, good_electrons))
     if boosted:
       leading_fatjet_pt = ha.get_in_offsets(fatjets.pt, fatjets.offsets, inds, mask_events, good_fatjets)
       leading_fatjet_eta = ha.get_in_offsets(fatjets.eta, fatjets.offsets, inds, mask_events, good_fatjets)
