@@ -388,6 +388,55 @@ def mask_deltar_first(objs1, mask1, objs2, mask2, drcut):
     mask_out = cupy.invert(mask_out)
     return mask_out
 
+@cuda.jit
+def mask_overlappingAK4_cudakernel(etas1, phis1, mask1, offsets1, etas2, phis2, mask2, offsets2, tau32, tau21, dr2, tau32cut, tau21cut, mask_out):
+    xi = cuda.grid(1)
+    xstride = cuda.gridsize(1)
+    
+    for iev in range(xi, len(offsets1)-1, xstride):
+        a1 = offsets1[iev]
+        b1 = offsets1[iev+1]
+        
+        a2 = offsets2[iev]
+        b2 = offsets2[iev+1]
+        
+        for idx1 in range(a1, b1):
+            if not mask1[idx1]:
+                continue
+                
+            eta1 = etas1[idx1]
+            phi1 = phis1[idx1]
+            for idx2 in range(a2, b2):
+                if not mask2[idx2]:
+                    continue
+                eta2 = etas2[idx2]
+                phi2 = phis2[idx2]
+                
+                deta = abs(eta1 - eta2)
+                dphi = (phi1 - phi2 + math.pi) % (2*math.pi) - math.pi
+                
+                #if first object is closer than dr2, mask element will be *disabled*
+                passdr = ((deta**2 + dphi**2) < dr2)
+                if passdr:
+                  passtau32 = (tau32[idx2] < tau32cut)
+                  passtau21 = (tau21[idx2] < tau21cut)
+                  mask_out[idx1] = (passtau32 or passtau21)
+
+def mask_overlappingAK4(objs1, mask1, objs2, mask2, drcut, tau32cut, tau21cut):
+    assert(mask1.shape == objs1.eta.shape)
+    assert(mask2.shape == objs2.eta.shape)
+    assert(objs1.offsets.shape == objs2.offsets.shape)
+    
+    mask_out = cupy.zeros_like(objs1.eta, dtype=cupy.bool)
+    mask_overlappingAK4_cudakernel[32, 1024](
+        objs1.eta, objs1.phi, mask1, objs1.offsets,
+        objs2.eta, objs2.phi, mask2, objs2.offsets, objs2.tau32, objs2.tau21,
+        drcut**2, tau32cut, tau21cut, mask_out
+    )
+    cuda.synchronize()
+    mask_out = cupy.invert(mask_out)
+    return mask_out
+
 def histogram_from_vector(data, weights, bins):        
     out_w = cupy.zeros(len(bins) - 1, dtype=cupy.float32)
     out_w2 = cupy.zeros(len(bins) - 1, dtype=cupy.float32)
