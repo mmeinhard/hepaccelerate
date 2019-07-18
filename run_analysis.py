@@ -80,9 +80,19 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     #mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
     mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & NUMPY_LIB.invert( (njets >= 4) & (btags >=2) ) & met
 
-    ### remove AK4 jets overlapping with a AK8 jet
-    non_overlapping_jets = ha.mask_deltar_first(jets, good_jets, fatjets, good_fatjets, 1.2)
-    good_jets &= non_overlapping_jets
+    ### check overlap between AK4 and AK8 jets: if (based on tau32 and tau21) the AK8 jet is a t/H/W candidate remove the AK4 jet, otherwise remove the AK8 jet
+    if boosted:
+      fatjets.tau32 = NUMPY_LIB.divide(fatjets.tau3, fatjets.tau2)
+      fatjets.tau21 = NUMPY_LIB.divide(fatjets.tau2, fatjets.tau1)
+      jets_to_keep = ha.mask_overlappingAK4(jets, good_jets, fatjets, good_fatjets, 1.2, tau32cut=0.4, tau21cut=0.4)
+      non_overlapping_fatjets = ha.mask_deltar_first(fatjets, good_fatjets, jets, good_jets, 1.2)
+
+      good_jets &= jets_to_keep
+      good_fatjets &= non_overlapping_fatjets | (fatjets.tau32 < 0.4) | (fatjets.tau21 < 0.4) #we keep fat jets which are not overlapping, or if they are either a top or W/H candidate
+
+      bjets = good_jets & (jets.btagDeepB > 0.4941)
+      njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
+      btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
     if boosted:
       nfatjets = ha.sum_in_offsets(fatjets, good_fatjets, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
@@ -306,7 +316,7 @@ if __name__ == "__main__":
         "GenPart_eta","GenPart_genPartIdxMother","GenPart_mass","GenPart_pdgId","GenPart_phi","GenPart_pt","GenPart_status","GenPart_statusFlags"
     ]
     if args.boosted:
-      arrays_objects += ["FatJet_pt", "FatJet_eta", "FatJet_phi", "FatJet_btagHbb", "FatJet_jetId", "FatJet_mass"]
+      arrays_objects += ["FatJet_pt", "FatJet_eta", "FatJet_phi", "FatJet_btagHbb", "FatJet_jetId", "FatJet_mass", "FatJet_tau1", "FatJet_tau2", "FatJet_tau3", "FatJet_tau4"]
     #these are variables per event
     arrays_event = [
         "PV_npvsGood", "PV_ndof", "PV_npvs", "PV_score", "PV_x", "PV_y", "PV_z", "PV_chi2",
