@@ -418,9 +418,9 @@ def mask_deltar_first(objs1, mask1, objs2, mask2, drcut):
     return mask_out
 
 @numba.njit(parallel=True)
-def mask_overlappingAK4_cudakernel(etas1, phis1, mask1, offsets1, etas2, phis2, mask2, offsets2, tau32, tau21, dr2, tau32cut, tau21cut, mask_out):
+def mask_overlappingAK4_kernel(etas1, phis1, mask1, offsets1, etas2, phis2, mask2, offsets2, tau32, tau21, dr2, tau32cut, tau21cut, mask_out):
     
-    for iev in range(xi, len(offsets1)-1, xstride):
+    for iev in numba.prange(len(offsets1)-1):
         a1 = offsets1[iev]
         b1 = offsets1[iev+1]
         
@@ -454,13 +454,13 @@ def mask_overlappingAK4(objs1, mask1, objs2, mask2, drcut, tau32cut, tau21cut):
     assert(mask2.shape == objs2.eta.shape)
     assert(objs1.offsets.shape == objs2.offsets.shape)
     
-    mask_out = cupy.zeros_like(objs1.eta, dtype=cupy.bool)
-    mask_overlappingAK4_cudakernel[32, 1024](
+    mask_out = np.zeros_like(objs1.eta, dtype=np.bool)
+    mask_overlappingAK4_kernel(
         objs1.eta, objs1.phi, mask1, objs1.offsets,
         objs2.eta, objs2.phi, mask2, objs2.offsets, objs2.tau32, objs2.tau21,
         drcut**2, tau32cut, tau21cut, mask_out
     )
-    mask_out = cupy.invert(mask_out)
+    mask_out = np.invert(mask_out)
     return mask_out
 
 def histogram_from_vector(data, weights, bins):        
