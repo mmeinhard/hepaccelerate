@@ -52,4 +52,7 @@ python counts.py --filelist filelist.txt
 ~~~
 Running this script gives the total weighted sum of generated events for all files defined in `filelist.txt`. After changing the filelist, update the weighted sum of generated events in `definitions_analysis.py`.
 
-Looking for the functions used for analysing the datasets? All important, analysis specific functions are defined in `lib_analysis.py`. 
+Looking for the functions used for analysing the datasets? All important, analysis specific functions are defined in `lib_analysis.py`.
+
+## Submitting slurm jobs to the PSI tier3
+The scripts `submit_cpu.sh` and `submit_gpu.sh` in their current form submit one slurm job per sample. To use them, log in to the correct node (`ssh t3ui07` for cpu, `ssh t3login` for gpu) and simply source the script. The arguments passed to `run_analysis.py` are defined in `c(g)pu_job.sh`.
