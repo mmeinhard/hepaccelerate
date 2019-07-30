@@ -55,10 +55,13 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         flags.append("Flag_eeBadScFilter")
     for flag in flags:
         mask_events = mask_events & scalars[flag]
-    trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu27"]) 
-    mask_events = mask_events & trigger 
+    if args.year.startswith('2016'):
+        trigger = (scalars["HLT_Ele27_WPTight_Gsf"] | scalars["HLT_IsoMu24"]  | scalars["HLT_IsoTkMu24"])
+    else:
+        trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu27"])
+    mask_events = mask_events & trigger
     mask_events = mask_events & (scalars["PV_npvsGood"]>0)
-    #mask_events = vertex_selection(scalars, mask_events) 
+    #mask_events = vertex_selection(scalars, mask_events)
 
     # apply object selection for muons, electrons, jets
     good_muons, veto_muons = lepton_selection(muons, parameters["muons"])
@@ -151,8 +154,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     weights["nominal"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32)
 
     if is_mc:
-        weights["nominal"] = weights["nominal"] * scalars["genWeight"] * parameters["lumi"] * samples_info[sample]["XS"] / samples_info[sample]["ngen_weight"]
-        
+        weights["nominal"] = weights["nominal"] * scalars["genWeight"] * eraDependentParameters[args.year]["lumi"] * samples_info[sample]["XS"] / samples_info[sample]["ngen_weight"]
+
         # pu corrections
         pu_weights = compute_pu_weights(parameters["pu_corrections_target"], weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
         weights["nominal"] = weights["nominal"] * pu_weights
@@ -175,24 +178,24 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     processes = {}
     if sample.startswith("TT"):
         ttCls = scalars["genTtbarId"]%100
-        processes["ttbb"] = mask_events & (ttCls >=53) & (ttCls <=56) 
-        processes["tt2b"] = mask_events & (ttCls ==52) 
-        processes["ttb"] = mask_events & (ttCls ==51) 
-        processes["ttcc"] = mask_events & (ttCls >=41) & (ttCls <=45) 
+        processes["ttbb"] = mask_events & (ttCls >=53) & (ttCls <=56)
+        processes["tt2b"] = mask_events & (ttCls ==52)
+        processes["ttb"] = mask_events & (ttCls ==51)
+        processes["ttcc"] = mask_events & (ttCls >=41) & (ttCls <=45)
         ttHF =  ((ttCls >=53) & (ttCls <=56)) | (ttCls ==52) | (ttCls ==51) | ((ttCls >=41) & (ttCls <=45))
         processes["ttlf"] = mask_events & NUMPY_LIB.invert(ttHF)
     else:
         processes["unsplit"] = mask_events
-        
+
     for p in processes.keys():
 
         mask_events_split = processes[p]
-    
+
 #        sl_jge4_tge3 = mask_events_split & (njets >= 4) & (btags >= 3)
-#        sl_j4_tge3 = mask_events_split & (njets == 4) & (btags >=3) 
-#        sl_j5_tge3 = mask_events_split & (njets == 5) & (btags >=3) 
-#        sl_jge6_tge3 = mask_events_split & (njets >= 6) & (btags >=3) 
-# 
+#        sl_j4_tge3 = mask_events_split & (njets == 4) & (btags >=3)
+#        sl_j5_tge3 = mask_events_split & (njets == 5) & (btags >=3)
+#        sl_jge6_tge3 = mask_events_split & (njets >= 6) & (btags >=3)
+#
 #        if not cat:
 #            list_cat = zip([mask_events_split, sl_jge4_tge3, sl_j4_tge3, sl_j5_tge3, sl_jge6_tge3], ["sl_jge4_tge2", "sl_jge4_tge3", "sl_j4_tge3", "sl_j5_tge3", "sl_jge6_tge3"])
 #        if cat == "sl_j4_tge3":
@@ -203,9 +206,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 #            list_cat = zip([sl_jge6_tge3], ["sl_jge6_tge3"])
 
         list_cat = zip([mask_events_split],["boosted"])
- 
-        #for cut, cut_name in zip([mask_events_split, sl_4j_geq3t, sl_5j_geq3t, sl_geq6j_geq3t], ["sl_geq4_geq3t", "sl_4j_geq3t","sl_5j_geq3t", "sl_geq6_geq3t"]): 
-        for cut, cut_name in list_cat: 
+
+        #for cut, cut_name in zip([mask_events_split, sl_4j_geq3t, sl_5j_geq3t, sl_geq6j_geq3t], ["sl_geq4_geq3t", "sl_4j_geq3t","sl_5j_geq3t", "sl_geq6_geq3t"]):
+        for cut, cut_name in list_cat:
 
             if p=="unsplit":
                 if "Run" in sample:
@@ -213,8 +216,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
                 else:
                     name = samples_info[sample]["process"] + "_" + cut_name
             else:
-                name = p + "_" + cut_name  
-        
+                name = p + "_" + cut_name
+
             # create histograms filled with weighted events
             hist_njets = Histogram(*ha.histogram_from_vector(njets[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,30,31)))
             ret["hist_{0}_njets".format(name)] = hist_njets
@@ -291,19 +294,19 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
                         ret["hist_{0}_DNN_{1}".format(name, n_name)] = hist_DNN
                         hist_DNN_ROC = Histogram(*ha.histogram_from_vector(DNN_node[(cut & node)], weights["nominal"][(cut & node)], NUMPY_LIB.linspace(0.,1.,1000)))
                         ret["hist_{0}_DNN_ROC_{1}".format(name, n_name)] = hist_DNN_ROC
-                        
+
                 else:
                     hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0.,1.,16)))
                     ret["hist_{0}_DNN".format(name)] = hist_DNN
                     hist_DNN_ROC = Histogram(*ha.histogram_from_vector(DNN_pred[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0.,1.,1000)))
                     ret["hist_{0}_DNN_ROC".format(name)] = hist_DNN_ROC
 
- 
+
     #TODO: implement JECs, btagging, lepton+trigger weights
 
     return ret
- 
-if __name__ == "__main__": 
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Runs a simple array-based analysis')
     parser.add_argument('--use-cuda', action='store_true', help='Use the CUDA backend')
     parser.add_argument('--from-cache', action='store_true', help='Load from cache (otherwise create it)')
@@ -316,26 +319,27 @@ if __name__ == "__main__":
     parser.add_argument('--DNN', action='store', choices=['save-arrays','cmb_binary', 'cmb_multiclass', 'ffwd_binary', 'ffwd_multiclass',False], help='options for DNN evaluation / preparation', default=False)
     parser.add_argument('--categories', action='store', choices=['sl_j4_tge3','sl_j5_tge3', 'sl_jge6_tge3',False], help='categories to be processed (default: False -> all categories)', default=False)
     parser.add_argument('--path-to-model', action='store', help='path to DNN model', type=str, default=None, required=False)
-    parser.add_argument('--boosted', action='store_true', help='Flag to include boosted objects', default=False) 
+    parser.add_argument('--boosted', action='store_true', help='Flag to include boosted objects', default=False)
+    parser.add_argument('--year', action='store', choices=['2016', '2017', '2018'], help='Year of data/MC samples', default='2017')
     parser.add_argument('filenames', nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
-    # set CPU or GPU backend 
+    # set CPU or GPU backend
     NUMPY_LIB, ha = choose_backend(args.use_cuda)
     lib_analysis.NUMPY_LIB, lib_analysis.ha = NUMPY_LIB, ha
     NanoAODDataset.numpy_lib = NUMPY_LIB
 
     if args.use_cuda:
-        os.environ["HEPACCELERATE_CUDA"] = "1" 
+        os.environ["HEPACCELERATE_CUDA"] = "1"
     else:
         os.environ["HEPACCELERATE_CUDA"] = "0"
 
-    from coffea.util import USE_CUPY        
+    from coffea.util import USE_CUPY
     from coffea.lumi_tools import LumiMask, LumiData
     from coffea.lookup_tools import extractor
 
     # load definitions
-    from definitions_analysis import parameters, samples_info
+    from definitions_analysis import parameters, eraDependentParameters, samples_info
 
     outdir = args.outdir
     if not os.path.exists(outdir):
@@ -343,13 +347,13 @@ if __name__ == "__main__":
 
     if "Run" in args.sample:
         is_mc = False
-        lumimask = LumiMask(parameters["lumimask"]) 
+        lumimask = LumiMask(eraDependentParameters["lumimask"])
     else:
         is_mc = True
-        lumimask = None  
+        lumimask = None
 
- 
-    #define arrays to load: these are objects that will be kept together 
+
+    #define arrays to load: these are objects that will be kept together
     arrays_objects = [
         "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass", "Jet_hadronFlavour",
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge",
@@ -363,18 +367,19 @@ if __name__ == "__main__":
         "PV_npvsGood", "PV_ndof", "PV_npvs", "PV_score", "PV_x", "PV_y", "PV_z", "PV_chi2",
         #"PV_npvsGood",
         "Flag_goodVertices", "Flag_globalSuperTightHalo2016Filter", "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter", "Flag_eeBadScFilter", "Flag_ecalBadCalibFilter",
-        "HLT_Ele35_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150",
-        "HLT_IsoMu24_eta2p1", "HLT_IsoMu27",
         "MET_pt", "MET_phi", "MET_sumEt",
         "run", "luminosityBlock", "event",
         "nGenPart"
     ]
 
+    if args.year.startswith('2016'): arrays_event += [ "HLT_Ele27_WPTight_Gsf", "HLT_IsoMu24", "HLT_IsoTkMu24" ]
+    else: arrays_event += [ "HLT_Ele35_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150", "HLT_IsoMu24_eta2p1", "HLT_IsoMu27" ]
+
     if args.sample.startswith("TT"):
         arrays_event.append("genTtbarId")
 
     if is_mc:
-        arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight"]  
+        arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight"]
 
     filenames = None
     if not args.filelist is None:
@@ -392,7 +397,7 @@ if __name__ == "__main__":
     results = Results()
 
 
-    for ibatch, files_in_batch in enumerate(chunks(filenames, args.files_per_batch)): 
+    for ibatch, files_in_batch in enumerate(chunks(filenames, args.files_per_batch)):
         #define our dataset
         structs = ["Jet", "Muon", "Electron","GenPart"]
         if args.boosted:
@@ -417,13 +422,13 @@ if __name__ == "__main__":
             print("loading dataset from cache")
             dataset.from_cache(verbose=True, nthreads=args.nthreads)
 
-        if is_mc: 
+        if is_mc:
 
             # add information needed for MC corrections
-            parameters["pu_corrections_target"] = load_puhist_target(parameters["pu_corrections_file"])
+            parameters["pu_corrections_target"] = load_puhist_target(eraDependentParameters[args.year]["pu_corrections_file"])
 
             ext = extractor()
-            for corr in parameters["corrections"]:
+            for corr in eraDependentParameters[args.year]["corrections"]:
                 ext.add_weight_sets([corr])
             ext.finalize()
             evaluator = ext.make_evaluator()
@@ -436,14 +441,14 @@ if __name__ == "__main__":
         model = None
         if args.DNN:
             model = load_model(args.path_to_model, custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
-            
+
         #### this is where the magic happens: run the main analysis
         results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, boosted=args.boosted, DNN=args.DNN, DNN_model=model)
-             
-            
+
+
     print(results)
-    
-    #Save the results 
+
+    #Save the results
     if not os.path.isdir(args.outdir):
       os.makedirs(args.outdir)
     results.save_json(os.path.join(outdir,"out_{}.json".format(args.sample)))
