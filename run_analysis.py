@@ -98,7 +98,6 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
       njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
       btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
-      nfatjets = ha.sum_in_offsets(fatjets, good_fatjets, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
       bbtags = ha.sum_in_offsets(fatjets, bfatjets, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
       ntop_candidates = ha.sum_in_offsets(fatjets, top_candidates, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
       nWH_candidates = ha.sum_in_offsets(fatjets, WH_candidates, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
@@ -110,6 +109,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     # calculation of all needed variables
     # get control variables
+    nfatjets = ha.sum_in_offsets(fatjets, good_fatjets, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
     inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
     leading_jet_pt = ha.get_in_offsets(jets.pt, jets.offsets, inds, mask_events, good_jets)
     leading_jet_eta = ha.get_in_offsets(jets.eta, jets.offsets, inds, mask_events, good_jets)
@@ -121,8 +121,14 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
       leading_fatjet_eta = ha.get_in_offsets(fatjets.eta, fatjets.offsets, inds, mask_events, good_fatjets)
       leading_fatjet_mass = ha.get_in_offsets(fatjets.mass, fatjets.offsets, inds, mask_events, good_fatjets)
       leading_fatjet_SDmass = ha.get_in_offsets(fatjets.msoftdrop, fatjets.offsets, inds, mask_events, good_fatjets)
+      leading_fatjet_tau32 = ha.get_in_offsets(fatjets.tau32, fatjets.offsets, inds, mask_events, good_fatjets)
+      leading_fatjet_tau21 = ha.get_in_offsets(fatjets.tau21, fatjets.offsets, inds, mask_events, good_fatjets)
       leading_topcandidate_SDmass = ha.get_in_offsets(fatjets.msoftdrop, fatjets.offsets, inds, mask_events, top_candidates)
+      leading_topcandidate_tau32 = ha.get_in_offsets(fatjets.tau32, fatjets.offsets, inds, mask_events, top_candidates)
+      leading_topcandidate_tau21 = ha.get_in_offsets(fatjets.tau21, fatjets.offsets, inds, mask_events, top_candidates)
       leading_WHcandidate_SDmass = ha.get_in_offsets(fatjets.msoftdrop, fatjets.offsets, inds, mask_events, WH_candidates) # FIXME: should select jet with highest doubleB score, not highest pt
+      leading_WHcandidate_tau32 = ha.get_in_offsets(fatjets.tau32, fatjets.offsets, inds, mask_events, WH_candidates) # FIXME: should select jet with highest doubleB score, not highest pt
+      leading_WHcandidate_tau21 = ha.get_in_offsets(fatjets.tau21, fatjets.offsets, inds, mask_events, WH_candidates) # FIXME: should select jet with highest doubleB score, not highest pt
 
     higgs = (genparts.pdgId == 25) & (genparts.status==62)
     tops  = ( (genparts.pdgId == 6) | (genparts.pdgId == -6) ) & (genparts.status==62)
@@ -138,6 +144,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
       subleading_fatjet_pt = ha.get_in_offsets(fatjets.pt, fatjets.offsets, inds, mask_events, good_fatjets)
       subleading_fatjet_eta = ha.get_in_offsets(fatjets.eta, fatjets.offsets, inds, mask_events, good_fatjets)
       subleading_fatjet_mass = ha.get_in_offsets(fatjets.mass, fatjets.offsets, inds, mask_events, good_fatjets)
+      subleading_fatjet_SDmass = ha.get_in_offsets(fatjets.msoftdrop, fatjets.offsets, inds, mask_events, good_fatjets)
 
     # calculate weights for MC samples
     weights = {}
@@ -219,6 +226,23 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
             ret["hist_{0}_leading_jet_pt".format(name)] = hist_leading_jet_pt
             hist_leading_lepton_pt = Histogram(*ha.histogram_from_vector(leading_lepton_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
             ret["hist_{0}_leading_lepton_pt".format(name)] = hist_leading_lepton_pt
+            hist_leading_bjet_pt = Histogram(*ha.histogram_from_vector(leading_bjet_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
+            ret["hist_{0}_leading_bjet_pt".format(name)] = hist_leading_bjet_pt
+            hist_subleading_bjet_pt = Histogram(*ha.histogram_from_vector(subleading_bjet_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
+            ret["hist_{0}_subleading_bjet_pt".format(name)] = hist_subleading_bjet_pt
+            hist_leading_jet_eta = Histogram(*ha.histogram_from_vector(leading_jet_eta[cut], weights["nominal"][cut], NUMPY_LIB.linspace(-2.4,2.4,31)))
+            ret["hist_{0}_leading_jet_eta".format(name)] = hist_leading_jet_eta
+            hist_leading_lepton_eta = Histogram(*ha.histogram_from_vector(leading_lepton_eta[cut], weights["nominal"][cut], NUMPY_LIB.linspace(-2.4,2.4,31)))
+            ret["hist_{0}_leading_lepton_eta".format(name)] = hist_leading_lepton_eta
+            hist_higgs_pt = Histogram(*ha.histogram_from_vector(higgs_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
+            ret["hist_{0}_higgs_pt".format(name)] = hist_higgs_pt
+            hist_higgs_eta = Histogram(*ha.histogram_from_vector(higgs_eta[cut], weights["nominal"][cut], NUMPY_LIB.linspace(-2.4,2.4,31)))
+            ret["hist_{0}_higgs_eta".format(name)] = hist_higgs_eta
+            hist_top_pt = Histogram(*ha.histogram_from_vector(top_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
+            ret["hist_{0}_top_pt".format(name)] = hist_top_pt
+            hist_top_eta = Histogram(*ha.histogram_from_vector(top_eta[cut], weights["nominal"][cut], NUMPY_LIB.linspace(-2.4,2.4,31)))
+            ret["hist_{0}_top_eta".format(name)] = hist_top_eta
+
 
             if boosted:
               hist_nfatjets = Histogram(*ha.histogram_from_vector(nfatjets[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,5,6)))
@@ -237,27 +261,25 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
               ret["hist_{0}_subleading_fatjet_pt".format(name)] = hist_subleading_fatjet_pt
               hist_subleading_fatjet_mass = Histogram(*ha.histogram_from_vector(subleading_fatjet_mass[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,300,31)))
               ret["hist_{0}_subleading_fatjet_mass".format(name)] = hist_subleading_fatjet_mass
+              hist_subleading_fatjet_SDmass = Histogram(*ha.histogram_from_vector(subleading_fatjet_SDmass[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,300,31)))
+              ret["hist_{0}_subleading_fatjet_SDmass".format(name)] = hist_subleading_fatjet_SDmass
+              hist_leading_WHcandidate_SDmass = Histogram(*ha.histogram_from_vector(leading_WHcandidate_SDmass[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,300,31)))
+              ret["hist_{0}_leading_WHcandidate_SDmass".format(name)] = hist_leading_WHcandidate_SDmass
               hist_leading_topcandidate_SDmass = Histogram(*ha.histogram_from_vector(leading_topcandidate_SDmass[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,300,31)))
               ret["hist_{0}_leading_topcandidate_SDmass".format(name)] = hist_leading_topcandidate_SDmass
-              hist_leading_fatjet_SDmass = Histogram(*ha.histogram_from_vector(leading_fatjet_SDmass[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,300,31)))
-              ret["hist_{0}_leading_fatjet_SDmass".format(name)] = hist_leading_fatjet_SDmass
+              hist_tau32_fatjets = Histogram(*ha.histogram_from_vector(leading_fatjet_tau32[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,1,31)))
+              ret["hist_{0}_tau32_fatjets".format(name)] = hist_tau32_fatjets
+              hist_tau32_topcandidates = Histogram(*ha.histogram_from_vector(leading_topcandidate_tau32[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,1,31)))
+              ret["hist_{0}_tau32_topcandidates".format(name)] = hist_tau32_topcandidates
+              hist_tau32_WHcandidates = Histogram(*ha.histogram_from_vector(leading_WHcandidate_tau32[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,1,31)))
+              ret["hist_{0}_tau32_WHcandidates".format(name)] = hist_tau32_WHcandidates
+              hist_tau21_fatjets = Histogram(*ha.histogram_from_vector(leading_fatjet_tau21[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,1,31)))
+              ret["hist_{0}_tau21_fatjets".format(name)] = hist_tau21_fatjets
+              hist_tau21_topcandidates = Histogram(*ha.histogram_from_vector(leading_topcandidate_tau21[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,1,31)))
+              ret["hist_{0}_tau21_topcandidates".format(name)] = hist_tau21_topcandidates
+              hist_tau21_WHcandidates = Histogram(*ha.histogram_from_vector(leading_WHcandidate_tau21[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,1,31)))
+              ret["hist_{0}_tau21_WHcandidates".format(name)] = hist_tau21_WHcandidates
 
-            hist_leading_bjet_pt = Histogram(*ha.histogram_from_vector(leading_bjet_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
-            ret["hist_{0}_leading_bjet_pt".format(name)] = hist_leading_bjet_pt
-            hist_subleading_bjet_pt = Histogram(*ha.histogram_from_vector(subleading_bjet_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
-            ret["hist_{0}_subleading_bjet_pt".format(name)] = hist_subleading_bjet_pt
-            hist_leading_jet_eta = Histogram(*ha.histogram_from_vector(leading_jet_eta[cut], weights["nominal"][cut], NUMPY_LIB.linspace(-2.4,2.4,31)))
-            ret["hist_{0}_leading_jet_eta".format(name)] = hist_leading_jet_eta
-            hist_leading_lepton_eta = Histogram(*ha.histogram_from_vector(leading_lepton_eta[cut], weights["nominal"][cut], NUMPY_LIB.linspace(-2.4,2.4,31)))
-            ret["hist_{0}_leading_lepton_eta".format(name)] = hist_leading_lepton_eta
-            hist_higgs_pt = Histogram(*ha.histogram_from_vector(higgs_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
-            ret["hist_{0}_higgs_pt".format(name)] = hist_higgs_pt
-            hist_higgs_eta = Histogram(*ha.histogram_from_vector(higgs_eta[cut], weights["nominal"][cut], NUMPY_LIB.linspace(-2.4,2.4,31)))
-            ret["hist_{0}_higgs_eta".format(name)] = hist_higgs_eta
-            hist_top_pt = Histogram(*ha.histogram_from_vector(top_pt[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0,500,31)))
-            ret["hist_{0}_top_pt".format(name)] = hist_top_pt
-            hist_top_eta = Histogram(*ha.histogram_from_vector(top_eta[cut], weights["nominal"][cut], NUMPY_LIB.linspace(-2.4,2.4,31)))
-            ret["hist_{0}_top_eta".format(name)] = hist_top_eta
 
             if DNN:
                 if DNN.endswith("multiclass"):
