@@ -184,3 +184,16 @@ def chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
 
+import keras.backend as K
+import keras.losses
+import keras.utils.generic_utils
+
+def mse0(y_true,y_pred):
+    return K.mean( K.square(y_true[:,0] - y_pred[:,0]) )
+
+def mae0(y_true,y_pred):
+    return K.mean( K.abs(y_true[:,0] - y_pred[:,0]) )
+
+def r2_score0(y_true,y_pred):
+    return 1. - K.sum( K.square(y_true[:,0] - y_pred[:,0]) ) / K.sum( K.square(y_true[:,0] - K.mean(y_true[:,0]) ) )
+
