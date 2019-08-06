@@ -12,4 +12,4 @@
 
 echo "submitting sample $1"
 
-PYTHONPATH=hepaccelerate:coffea:. python3 run_analysis.py --filelist datasets/RunIIFall17NanoAODv4/$1.txt --sample $1  --outdir results_studyBoostedStatistics_fancyJetSelection/mc --boosted --use-cuda --from-cache #--DNN save-arrays --cache-location /scratch/druini/cache/ 
+PYTHONPATH=hepaccelerate:coffea:. python3 ../run_analysis.py --filelist ../datasets/RunIIFall17NanoAODv4/$1.txt --sample $1  --outdir ../results_studyBoostedStatistics_fancyJetSelection/mc --boosted --use-cuda --from-cache #--DNN save-arrays --cache-location /scratch/druini/cache/ 
