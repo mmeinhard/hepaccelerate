@@ -52,4 +52,25 @@ python counts.py --filelist filelist.txt
 ~~~
 Running this script gives the total weighted sum of generated events for all files defined in `filelist.txt`. After changing the filelist, update the weighted sum of generated events in `definitions_analysis.py`.
 
-Looking for the functions used for analysing the datasets? All important, analysis specific functions are defined in `lib_analysis.py`. 
+Looking for the functions used for analysing the datasets? All important, analysis specific functions are defined in `lib_analysis.py`.
+
+## Submitting slurm jobs to the PSI tier3
+The scripts `submit_cpu.sh` and `submit_gpu.sh` in their current form submit one slurm job per sample. To use them, log in to the correct node (`ssh t3ui07` for cpu, `ssh t3login` for gpu), activate the correct environment:
+~~~
+export PATH=/work/creissel/anaconda3/bin:$PATH
+source activate hepaccelerate_cpu
+OR
+source activate hepaccelerate_gpu
+~~~
+and simply source the `submit` script. The arguments passed to `run_analysis.py` are defined in `c(g)pu_job.sh`.
+
+## Running the jupyter notebook from tier3
+On your local machine run 
+~~~
+ssh -f YOURUSERNAME@t3ui02.psi.ch -L 8008:localhost:8008 -N
+~~~
+Then log in to tier3 and run
+~~~
+jupyter notebook --no-browser --port=8008
+~~~
+You will get a URL with a token to copy-paste into your browser. Done.
