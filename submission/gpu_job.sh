@@ -10,8 +10,6 @@
 
 #SBATCH --gres=gpu:1    # request 1 GPU's on machine                                         
 
-echo "start running python script"
+echo "submitting sample $1"
 
-PYTHONPATH=.:$PYTHONPATH python3 simple_ttH.py --filelist datasets/ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8.txt --sample ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8 --from-cache --evaluate-DNN --use-cuda
-
-echo "done"
+PYTHONPATH=hepaccelerate:coffea:. python3 run_analysis.py --filelist datasets/$1.txt --sample $1  --outdir test/ --use-cuda --from-cache #--DNN save-arrays --cache-location /scratch/druini/cache/ 

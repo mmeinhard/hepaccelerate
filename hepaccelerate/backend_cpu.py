@@ -6,6 +6,15 @@ import math
 @numba.jit(fastmath=True)
 def searchsorted_devfunc(arr, val):
     ret = -1
+
+    #overflow
+    if val > arr[-1]:
+        return len(arr)
+
+    #underflow bin will not be filled
+    if val < arr[0]:
+        return -1
+
     for i in range(len(arr)):
         #if val <= arr[i]:
         if val < arr[i+1]:
@@ -203,6 +212,28 @@ def get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, ou
                     break
                 else:
                     index_to_get += 1
+
+'''
+Function to get the index of the index_to_get-th highest element of content. Combined with the get_in_offsets function it allows e.g. to access the jet with the 1st or 2nd highest btag score
+'''
+@numba.njit(parallel=True)
+def index_in_offsets_kernel(content, offsets, index_to_get, mask_rows, mask_content, out):
+    for iev in numba.prange(offsets.shape[0]-1):
+        if not mask_rows[iev]:
+            continue
+            
+        start = offsets[iev]
+        end = offsets[iev + 1]
+        event_content = content[start:end]
+
+        ind = 0
+        while index_to_get < len(event_content):
+          ind = np.argsort(event_content)[-index_to_get]
+          if mask_content[start + ind]:
+            out[iev] = ind
+            break
+          else:
+            index_to_get += 1
         
 @numba.njit(parallel=True)
 def min_in_offsets_kernel(content, offsets, mask_rows, mask_content, out):
@@ -259,8 +290,14 @@ def select_muons_opposite_sign(muons, in_mask):
     return out_mask
 
 def get_in_offsets(content, offsets, indices, mask_rows, mask_content):
-    out = np.zeros(len(offsets) - 1, dtype=content.dtype)
+    #out = np.zeros(len(offsets) - 1, dtype=content.dtype)
+    out = -999.*np.ones(len(offsets) - 1, dtype=content.dtype) #to avoid histos being filled with 0 for non-existing objects, i.e. in events with no fat jets
     get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, out)
+    return out
+
+def index_in_offsets(content, offsets, index_to_get, mask_rows, mask_content):
+    out = np.zeros(len(offsets) - 1, dtype=offsets.dtype)
+    index_in_offsets_kernel(content, offsets, index_to_get, mask_rows, mask_content, out)
     return out
 
 def calc_px(content_pt, content_phi):
@@ -403,6 +440,52 @@ def mask_deltar_first(objs1, mask1, objs2, mask2, drcut):
         objs1.eta, objs1.phi, mask1, objs1.offsets,
         objs2.eta, objs2.phi, mask2, objs2.offsets,
         drcut**2, mask_out
+    )
+    mask_out = np.invert(mask_out)
+    return mask_out
+
+@numba.njit(parallel=True)
+def mask_overlappingAK4_kernel(etas1, phis1, mask1, offsets1, etas2, phis2, mask2, offsets2, tau32, tau21, dr2, tau32cut, tau21cut, mask_out):
+    
+    for iev in numba.prange(len(offsets1)-1):
+        a1 = offsets1[iev]
+        b1 = offsets1[iev+1]
+        
+        a2 = offsets2[iev]
+        b2 = offsets2[iev+1]
+        
+        for idx1 in range(a1, b1):
+            if not mask1[idx1]:
+                continue
+                
+            eta1 = etas1[idx1]
+            phi1 = phis1[idx1]
+            for idx2 in range(a2, b2):
+                if not mask2[idx2]:
+                    continue
+                eta2 = etas2[idx2]
+                phi2 = phis2[idx2]
+                
+                deta = abs(eta1 - eta2)
+                dphi = (phi1 - phi2 + math.pi) % (2*math.pi) - math.pi
+                
+                #if first object is closer than dr2, mask element will be *disabled*
+                passdr = ((deta**2 + dphi**2) < dr2)
+                if passdr:
+                  passtau32 = (tau32[idx2] < tau32cut)
+                  passtau21 = (tau21[idx2] < tau21cut)
+                  mask_out[idx1] = (passtau32 or passtau21)
+
+def mask_overlappingAK4(objs1, mask1, objs2, mask2, drcut, tau32cut, tau21cut):
+    assert(mask1.shape == objs1.eta.shape)
+    assert(mask2.shape == objs2.eta.shape)
+    assert(objs1.offsets.shape == objs2.offsets.shape)
+    
+    mask_out = np.zeros_like(objs1.eta, dtype=np.bool)
+    mask_overlappingAK4_kernel(
+        objs1.eta, objs1.phi, mask1, objs1.offsets,
+        objs2.eta, objs2.phi, mask2, objs2.offsets, objs2.tau32, objs2.tau21,
+        drcut**2, tau32cut, tau21cut, mask_out
     )
     mask_out = np.invert(mask_out)
     return mask_out

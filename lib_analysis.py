@@ -57,7 +57,9 @@ def jet_selection(jets, leps, mask_leps, cuts):
 
     jets_pass_dr = ha.mask_deltar_first(jets, jets.masks["all"], leps, mask_leps, cuts["dr"])
     jets.masks["pass_dr"] = jets_pass_dr
-    good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & (jets.puId>=cuts["puId"]) & jets_pass_dr
+    good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & jets_pass_dr
+    if cuts["type"] == "jet":
+      good_jets &= (jets.puId>=cuts["puId"]) 
 
     return good_jets
 
@@ -131,6 +133,41 @@ def compute_btag_weights(jets, mask_rows, mask_content, evaluator):
     per_event_weights = ha.multiply_in_offsets(jets, pJet_weight, mask_rows, mask_content)
     return per_event_weights
 
+############################################# HIGH LEVEL VARIABLES (DNN evaluation, ...) ############################################
+
+def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, DNN, DNN_model):
+    
+        # make inputs (defined in backend (not extremely nice))
+        jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
+        met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
+        leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
+
+        inputs = [jets_feats, leps_feats, met_feats]
+
+        if DNN.startswith("ffwd"):
+            inputs = [NUMPY_LIB.reshape(x, (x.shape[0], -1)) for x in inputs]
+            inputs = NUMPY_LIB.hstack(inputs)
+            # numpy transfer needed for keras
+            inputs = NUMPY_LIB.asnumpy(inputs)
+
+        if DNN.startswith("cmb"):
+            # numpy transfer needed for keras
+            if not isinstance(jets_feats, np.ndarray):
+                inputs = [NUMPY_LIB.asnumpy(x) for x in inputs]
+
+        # fix in case inputs are empty
+        if jets_feats.shape[0] == 0:
+            DNN_pred = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.float32)
+        else:
+            # run prediction (done on GPU)
+            DNN_pred = DNN_model.predict(inputs, batch_size = 10000)
+            # in case of NUMPY_LIB is cupy: transfer numpy output back to cupy array for further computation
+            DNN_pred = NUMPY_LIB.array(DNN_model.predict(inputs, batch_size = 10000))
+            if DNN.endswith("binary"):
+                DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
+
+        return DNN_pred
+
 
 ####################################################### Simple helpers  #############################################################
 
@@ -146,4 +183,17 @@ def chunks(l, n):
     """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
         yield l[i:i + n]
+
+import keras.backend as K
+import keras.losses
+import keras.utils.generic_utils
+
+def mse0(y_true,y_pred):
+    return K.mean( K.square(y_true[:,0] - y_pred[:,0]) )
+
+def mae0(y_true,y_pred):
+    return K.mean( K.abs(y_true[:,0] - y_pred[:,0]) )
+
+def r2_score0(y_true,y_pred):
+    return 1. - K.sum( K.square(y_true[:,0] - y_pred[:,0]) ) / K.sum( K.square(y_true[:,0] - K.mean(y_true[:,0]) ) )
 
