@@ -5,6 +5,4 @@ cache
 hepaccelerate/__pycache__/
 *.json
 *.txt
-submit_cpu.sh
-submit_gpu.sh
 slurm-*.out
