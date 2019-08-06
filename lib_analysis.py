@@ -57,7 +57,9 @@ def jet_selection(jets, leps, mask_leps, cuts):
 
     jets_pass_dr = ha.mask_deltar_first(jets, jets.masks["all"], leps, mask_leps, cuts["dr"])
     jets.masks["pass_dr"] = jets_pass_dr
-    good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & (jets.puId>=cuts["puId"]) & jets_pass_dr
+    good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & jets_pass_dr
+    if cuts["type"] == "jet":
+      good_jets &= (jets.puId>=cuts["puId"]) 
 
     return good_jets
 
