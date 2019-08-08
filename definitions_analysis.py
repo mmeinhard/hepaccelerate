@@ -109,3 +109,42 @@ samples_info = {
 
 
 ############################################################### Histograms ########################################################
+
+histogram_settings = {
+
+    "njets" : (0,14,15),
+    "nleps" : (0,10,11),
+    "btags" : (0,8,9),
+    "leading_jet_pt" : (0,500,31),
+    "leading_jet_eta" : (-2.4,2.4,31),
+    "leading_lepton_pt" : (0,500,31),
+    "leading_lepton_eta" : (-2.4,2.4,31),
+    "leading_bjet_pt" : (0,500,31),
+    "leading_bjet_eta" : (-2.4,2.4,31),
+    "subleading_bjet_pt" : (0,500,31),
+    "subleading_bjet_eta" : (-2.4,2.4,31),
+
+    "higgs_pt": (0,500,31),
+    "higgs_eta": (-2.4,2.4,31),
+    "top_pt" : (0,500,31),
+    "top_eta": (-2.4,2.4,31),
+    "nfatjets": (0,5,6),
+    "nbbtags": (0,4,5),
+    "ntop_candidates": (0,5,6),
+    "nWH_candidates": (0,5,6),
+    "leading_fatjet_pt": (200,500,31),
+    "leading_fatjet_eta": (-2.4,2.4,31),
+    "leading_fatjet_mass": (0,300,31),
+    "leading_fatjet_SDmass": (0,300,31),
+    "subleading_fatjet_pt": (200,500,31),
+    "subleading_fatjet_mass": (0,300,31),
+    "subleading_fatjet_SDmass": (0,300,31),
+    "leading_WHcandidate_SDmass": (0,300,31),
+    "leading_topcandidate_SDmass": (0,300,31),
+    "tau32_fatjets": (0,1,31),
+    "tau32_topcandidates": (0,1,31),
+    "tau32_WHcandidates": (0,1,31),
+    "tau21_fatjets": (0,1,31),
+    "tau21_topcandidates": (0,1,31),
+    "tau21_WHcandidates": (0,1,31)
+}

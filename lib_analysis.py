@@ -168,7 +168,15 @@ def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, 
 
         return DNN_pred
 
+# calculate simple object variables
+def calculate_variable_features(z, mask_events, indices, var):
 
+    name, coll, mask_content, inds, feats = z
+    idx = indices[inds]
+
+    for f in feats:
+        var[inds+"_"+name+"_"+f] = ha.get_in_offsets(getattr(coll, f), getattr(coll, "offsets"), idx, mask_events, mask_content)
+    
 ####################################################### Simple helpers  #############################################################
 
 def get_histogram(data, weights, bins):
