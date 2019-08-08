@@ -18,7 +18,7 @@ from lib_analysis import mse0,mae0,r2_score0
 from definitions_analysis import histogram_settings
 
 import lib_analysis
-from lib_analysis import vertex_selection, lepton_selection, jet_selection, load_puhist_target, compute_pu_weights, compute_lepton_weights, compute_btag_weights, chunks, evaluate_DNN
+from lib_analysis import vertex_selection, lepton_selection, jet_selection, load_puhist_target, compute_pu_weights, compute_lepton_weights, compute_btag_weights, chunks, evaluate_DNN, calculate_variable_features
 
 config = tf.ConfigProto()
 config.gpu_options.allow_growth=True
@@ -107,50 +107,47 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
       ### 1 top candidate and 1 H candidate, and 1 b jet from the leptonic top
       mask_events &= (ntop_candidates > 0) & (nWH_candidates > 0) & (btags > 0)
 
-    # calculation of all needed variables
-    # get control variables
-
+    ### calculation of all needed variables
     var = {}
-
-    # leading variables
-    inds = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
 
     var["njets"] = njets
     var["btags"] = btags
     var["nleps"] = nleps
-
-    for obj, obj_name, cut in zip([jets, jets], ["jet", "bjet"], [good_jets, bjets]):
-      for feat in ["pt", "eta"]:
-        var["leading_"+obj_name+"_"+feat] = ha.get_in_offsets(getattr(obj, feat), getattr(obj, "offsets"), inds, mask_events, cut)
-
-    # special role of lepton
-    var["leading_lepton_pt"] = NUMPY_LIB.maximum(ha.get_in_offsets(muons.pt, muons.offsets, inds, mask_events, good_muons), ha.get_in_offsets(electrons.pt, electrons.offsets, inds, mask_events, good_electrons))
-    var["leading_lepton_eta"] = NUMPY_LIB.maximum(ha.get_in_offsets(muons.eta, muons.offsets, inds, mask_events, good_muons), ha.get_in_offsets(electrons.eta, electrons.offsets, inds, mask_events, good_electrons))
-
     if boosted:
-
       higgs = (genparts.pdgId == 25) & (genparts.status==62)
       tops  = ( (genparts.pdgId == 6) | (genparts.pdgId == -6) ) & (genparts.status==62)
-
-      inds_WHcandidates = ha.index_in_offsets(fatjets.btagHbb, fatjets.offsets, 1, mask_events, WH_candidates)
-
       var["nfatjets"] = ha.sum_in_offsets(fatjets, good_fatjets, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
+      var["ntop_candidates"] = ha.sum_in_offsets(fatjets, tops, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
 
-      for obj, obj_name, cut in zip([fatjets, fatjets, genparts, genparts, genparts], ["fatjet", "top_candidate", "WH_candidate", "higgs", "tops"], [good_fatjets, top_candidates, WH_candidates, higgs, tops]):
-        for feat in ["pt", "eta", "mass", "msoftdrop", "tau32", "tau21"]:
-          if cut == WH_candidates:
-            inds_used = inds_WHcandidates
-          else:
-            inds_used = inds
-          var["leading_"+obj_name+"_"+feat] = ha.get_in_offsets(getattr(obj, feat), getattr(obj, "offsets"), inds_used, mask_events, cut)
-
-
-    # subleading variables
-    inds = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.int32)
+    indices = {}    
+    indices["leading"] = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
+    indices["subleading"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.int32)
     if boosted:
-      for obj, obj_name, cut in zip([fatjets], ["fatjet"], [good_fatjets]):
-        for feat in ["pt", "eta", "mass", "msoftdrop", "tau32", "tau21"]:
-          var["subleading_"+obj[:-1]+"_"+feat] = ha.get_in_offsets(getattr(obj, feat), getattr(obj, "offsets"), inds, mask_events, cut)
+      indices["inds_WHcandidates"] = ha.index_in_offsets(fatjets.btagHbb, fatjets.offsets, 1, mask_events, WH_candidates)
+
+
+    variables = [
+        ("jet", jets, good_jets, "leading", ["pt", "eta"]),
+        ("bjet", jets, bjets, "leading", ["pt", "eta"]),
+    ]
+
+    if boosted:
+        variables += [
+            ("fatjet", fatjets, good_fatjets, "leading",["pt", "eta", "mass", "msoftdrop", "tau32", "tau21"]),
+            ("fatjet", fatjets, good_fatjets, "subleading",["pt", "eta", "mass", "msoftdrop", "tau32", "tau21"]),
+            ("top_candidate", fatjets, top_candidates, "leading", ["pt", "eta", "mass", "msoftdrop", "tau32", "tau21"]),
+            ("WH_candidate", fatjets, WH_candidates, "inds_WHcandidates", ["pt", "eta", "mass", "msoftdrop", "tau32", "tau21"]),
+            ("higgs", genparts, higgs, "leading", ["pt", "eta"]),
+            ("tops", genparts, tops, "leading", ["pt", "eta"])
+    ]
+
+    # special role of lepton
+    var["leading_lepton_pt"] = NUMPY_LIB.maximum(ha.get_in_offsets(muons.pt, muons.offsets, indices["leading"], mask_events, good_muons), ha.get_in_offsets(electrons.pt, electrons.offsets, indices["leading"], mask_events, good_electrons))
+    var["leading_lepton_eta"] = NUMPY_LIB.maximum(ha.get_in_offsets(muons.eta, muons.offsets, indices["leading"], mask_events, good_muons), ha.get_in_offsets(electrons.eta, electrons.offsets, indices["leading"], mask_events, good_electrons))
+
+    # all other variables
+    for v in variables:
+        calculate_variable_features(v, mask_events, indices, var)
 
 
     # calculate weights for MC samples
@@ -199,12 +196,28 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
         mask_events_split = processes[p]
 
-        if boosted:
-          list_cat = zip([mask_events_split],["boosted"])
-        else:
-          list_cat = zip([mask_events_split], ["sl_jge4_tge2"])
+        # Categories
+        categories = {}
+        if not boosted:
+          categories["sl_jge4_tge2"] = mask_events_split
+          categories["sl_jge4_tge3"] = mask_events_split & (btags >=3)
 
-        for cut, cut_name in list_cat:
+          categories["sl_j4_tge3"] = mask_events_split & (njets ==4) & (btags >=3)
+          categories["sl_j5_tge3"] = mask_events_split & (njets ==5) & (btags >=3)
+          categories["sl_jge6_tge3"] = mask_events_split & (njets >=6) & (btags >=3)
+
+          categories["sl_j4_t3"] = mask_events_split & (njets ==4) & (btags ==3)
+          categories["sl_j4_tge4"] = mask_events_split & (njets ==4) & (btags >=4)
+          categories["sl_j5_t3"] = mask_events_split & (njets ==5) & (btags ==3)
+          categories["sl_j5_tge4"] = mask_events_split & (njets ==5) & (btags >=4)
+          categories["sl_jge6_t3"] = mask_events_split & (njets >=6) & (btags ==3)
+          categories["sl_jge6_tge4"] = mask_events_split & (njets >=6) & (btags >=4)
+        
+        if not isinstance(cat, list):
+            cat = [cat] 
+        for c in cat:
+            cut = categories[c]
+            cut_name = c
 
             if p=="unsplit":
                 if "Run" in sample:
@@ -216,6 +229,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
             # create histograms filled with weighted events
             for k in var.keys():
+                if not k in histogram_settings.keys():
+                    raise Exception("please add variable {0} to config_analysis.py".format(k))
                 hist = Histogram(*ha.histogram_from_vector(var[k][cut], weights["nominal"][cut], NUMPY_LIB.linspace(histogram_settings[k][0], histogram_settings[k][1], histogram_settings[k][2])))
                 ret["hist_{0}_{1}".format(name, k)] = hist
 
@@ -252,7 +267,7 @@ if __name__ == "__main__":
     parser.add_argument('--filelist', action='store', help='List of files to load', type=str, default=None, required=False)
     parser.add_argument('--sample', action='store', help='sample name', type=str, default=None, required=True)
     parser.add_argument('--DNN', action='store', choices=['save-arrays','cmb_binary', 'cmb_multiclass', 'ffwd_binary', 'ffwd_multiclass',False], help='options for DNN evaluation / preparation', default=False)
-    parser.add_argument('--categories', action='store', choices=['sl_j4_tge3','sl_j5_tge3', 'sl_jge6_tge3',False], help='categories to be processed (default: False -> all categories)', default=False)
+    parser.add_argument('--categories', nargs='+', help='categories to be processed (default: sl_jge4_tge2)', default="sl_jge4_tge2")
     parser.add_argument('--path-to-model', action='store', help='path to DNN model', type=str, default=None, required=False)
     parser.add_argument('--boosted', action='store_true', help='Flag to include boosted objects', default=False)
     parser.add_argument('--year', action='store', choices=['2016', '2017', '2018'], help='Year of data/MC samples', default='2017')
@@ -379,6 +394,7 @@ if __name__ == "__main__":
         if args.DNN:
             model = load_model(args.path_to_model, custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
 
+        print(args.categories)
         #### this is where the magic happens: run the main analysis
         results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, boosted=args.boosted, DNN=args.DNN, DNN_model=model)
 
