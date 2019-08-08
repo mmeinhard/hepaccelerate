@@ -58,7 +58,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     good_muons, veto_muons = lepton_selection(muons, parameters["muons"])
     good_electrons, veto_electrons = lepton_selection(electrons, parameters["electrons"])
     good_jets = jet_selection(jets, muons, (veto_muons | good_muons), parameters["jets"]) & jet_selection(jets, electrons, (veto_electrons | good_electrons) , parameters["jets"])
-    bjets = good_jets & (jets.btagDeepB > 0.4941)
+    bjets = good_jets & (getattr(jets, parameters["btagging algorithm"]) > parameters["btagging WP"])
 
     # apply basic event selection -> individual categories cut later
     nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
@@ -79,22 +79,21 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
       fatjets = data["FatJet"]
       genparts = data["GenPart"]
 
+      # get fatjets
       good_fatjets = jet_selection(fatjets, muons, (veto_muons | good_muons), parameters["fatjets"]) & jet_selection(fatjets, electrons, (veto_electrons | good_electrons), parameters["fatjets"])
-      bfatjets = good_fatjets & (fatjets.btagHbb > .8) # Higgs to BB tagger discriminator, working point medium2
+      bfatjets = good_fatjets & (fatjets.btagHbb > parameters["bbtagging WP"]) 
 
       fatjets.tau32 = NUMPY_LIB.divide(fatjets.tau3, fatjets.tau2)
       fatjets.tau21 = NUMPY_LIB.divide(fatjets.tau2, fatjets.tau1)
-      tau32cut = 0.4
-      tau21cut = 0.4
-      jets_to_keep = ha.mask_overlappingAK4(jets, good_jets, fatjets, good_fatjets, 1.2, tau32cut=tau32cut, tau21cut=tau21cut)
+      jets_to_keep = ha.mask_overlappingAK4(jets, good_jets, fatjets, good_fatjets, 1.2, tau32cut=parameters["fatjets"]["tau32cut"], tau21cut=parameters["fatjets"]["tau21cut"])
       non_overlapping_fatjets = ha.mask_deltar_first(fatjets, good_fatjets, jets, good_jets, 1.2)
 
       good_jets &= jets_to_keep
-      good_fatjets &= non_overlapping_fatjets | (fatjets.tau32 < 0.4) | (fatjets.tau21 < 0.4) #we keep fat jets which are not overlapping, or if they are either a top or W/H candidate
+      good_fatjets &= non_overlapping_fatjets | (fatjets.tau32 < parameters["fatjets"]["tau32cut"]) | (fatjets.tau21 < parameters["fatjets"]["tau21cut"]) #we keep fat jets which are not overlapping, or if they are either a top or W/H candidate
 
-      top_candidates = (fatjets.tau32 < tau32cut)
-      WH_candidates = (fatjets.tau32 > tau32cut) & (fatjets.tau21 < tau21cut)
-      bjets = good_jets & (jets.btagDeepB > 0.4941)
+      top_candidates = (fatjets.tau32 < parameters["fatjets"]["tau32cut"])
+      WH_candidates = (fatjets.tau32 > tau32cut) & (fatjets.tau21 < parameters["fatjets"]["tau21cut"])
+      bjets = good_jets & (jets.btagDeepB > parameters["btagging WP"])
       njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
       btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
@@ -155,7 +154,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     weights["nominal"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.float32)
 
     if is_mc:
-        weights["nominal"] = weights["nominal"] * scalars["genWeight"] * eraDependentParameters[args.year]["lumi"] * samples_info[sample]["XS"] / samples_info[sample]["ngen_weight"]
+        weights["nominal"] = weights["nominal"] * scalars["genWeight"] * parameters["lumi"] * samples_info[sample]["XS"] / samples_info[sample]["ngen_weight"]
 
         # pu corrections
         pu_weights = compute_pu_weights(parameters["pu_corrections_target"], weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
@@ -290,6 +289,8 @@ if __name__ == "__main__":
 
     # load definitions
     from definitions_analysis import parameters, eraDependentParameters, samples_info
+    parameters.update(eraDependentParameters[args.year])
+    print(parameters)
 
     outdir = args.outdir
     if not os.path.exists(outdir):
@@ -298,7 +299,7 @@ if __name__ == "__main__":
 
     if "Run" in args.sample:
         is_mc = False
-        lumimask = LumiMask(eraDependentParameters["lumimask"])
+        lumimask = LumiMask(parameters["lumimask"])
     else:
         is_mc = True
         lumimask = None
@@ -377,10 +378,10 @@ if __name__ == "__main__":
         if is_mc:
 
             # add information needed for MC corrections
-            parameters["pu_corrections_target"] = load_puhist_target(eraDependentParameters[args.year]["pu_corrections_file"])
+            parameters["pu_corrections_target"] = load_puhist_target(parameters["pu_corrections_file"])
 
             ext = extractor()
-            for corr in eraDependentParameters[args.year]["corrections"]:
+            for corr in parameters["corrections"]:
                 ext.add_weight_sets([corr])
             ext.finalize()
             evaluator = ext.make_evaluator()
