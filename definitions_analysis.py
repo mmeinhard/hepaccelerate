@@ -31,7 +31,9 @@ parameters = {
                "dr": 0.8,
                "pt": 200,
                "eta": 2.4,
-               "jetId": 2
+               "jetId": 2,
+               "tau32cut": 0.4,
+               "tau21cut": 0.4,
     },
 }
 
@@ -62,7 +64,10 @@ eraDependentParameters = {
             "mu_isoSF NUM_TightRelIso_DEN_TightIDandIPCut_pt_abseta ./data/RunBCDEF_SF_ISO.histo.root",
             "mu_idSF NUM_TightID_DEN_genTracks_pt_abseta ./data/RunBCDEF_SF_ID.histo.root",
             "BTagSF * ./data/deepCSV_sfs_v2.btag.csv"
-        ]
+        ],
+        "btagging algorithm" : "btagDeepB",
+        "btagging WP" : 0.4941, # medium working point for btagDeepB
+        "bbtagging WP" : 0.8, # medium 2 working point for DeepDoubleB tagger
     }
 
 }
