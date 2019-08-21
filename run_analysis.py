@@ -69,7 +69,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     # apply basic event definition (inverted for boosted analysis)
     if boosted:
-      mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & NUMPY_LIB.invert( (njets >= 4) & (btags >=2) ) & met
+      mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & NUMPY_LIB.invert( (njets >= 4) & (btags >=3) ) & met
     else:
       mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
 
@@ -91,20 +91,22 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
       good_jets &= jets_to_keep
       good_fatjets &= non_overlapping_fatjets | (fatjets.tau32 < parameters["fatjets"]["tau32cut"]) | (fatjets.tau21 < parameters["fatjets"]["tau21cut"]) #we keep fat jets which are not overlapping, or if they are either a top or W/H candidate
 
-      top_candidates = (fatjets.tau32 < parameters["fatjets"]["tau32cut"])
-      WH_candidates = (fatjets.tau32 > tau32cut) & (fatjets.tau21 < parameters["fatjets"]["tau21cut"])
+      #top_candidates = (fatjets.tau32 < parameters["fatjets"]["tau32cut"])
+      #WH_candidates = (fatjets.tau32 > tau32cut) & (fatjets.tau21 < parameters["fatjets"]["tau21cut"])
       bjets = good_jets & (jets.btagDeepB > parameters["btagging WP"])
       njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
       btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
-      bbtags = ha.sum_in_offsets(fatjets, bfatjets, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
-      ntop_candidates = ha.sum_in_offsets(fatjets, top_candidates, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
-      nWH_candidates = ha.sum_in_offsets(fatjets, WH_candidates, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
+      
+
+      #bbtags = ha.sum_in_offsets(fatjets, bfatjets, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
+      #ntop_candidates = ha.sum_in_offsets(fatjets, top_candidates, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
+      #nWH_candidates = ha.sum_in_offsets(fatjets, WH_candidates, mask_events, fatjets.masks["all"], NUMPY_LIB.int8)
 
       ### 2 fat jets from H and W, 2 b jets from the tops
       #mask_events &= (nWH_candidates > 1) & (btags > 1)
       ### 1 top candidate and 1 H candidate, and 1 b jet from the leptonic top
-      mask_events &= (ntop_candidates > 0) & (nWH_candidates > 0) & (btags > 0)
+      #mask_events &= (ntop_candidates > 0) & (nWH_candidates > 0) & (btags > 0)
 
     ### calculation of all needed variables
     var = {}
