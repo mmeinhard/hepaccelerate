@@ -59,7 +59,7 @@ def histogram_from_vector(data, weights, bins):
         fill_histogram[32, 1024](data, weights, bins, out_w, out_w2)
     return cupy.asnumpy(out_w), cupy.asnumpy(out_w2), cupy.asnumpy(bins)
 
-@numba.njit(parallel=True)
+@cuda.jit
 def sort_in_offsets_kernel(content, offsets, index_to_get, mask_rows, mask_content, out):
 
     xi = cuda.grid(1)
@@ -271,6 +271,11 @@ def get_bin_contents_cudakernel(values, edges, contents, out):
         ibin = searchsorted_devfunc(edges, v)
         if ibin>=0 and ibin < len(contents):
             out[i] = contents[ibin]
+
+def get_bin_contents(values, edges, contents, out):
+    assert(values.shape == out.shape)
+    assert(edges.shape[0] == contents.shape[0]+1)
+    get_bin_contents_cudakernel[32, 1024](values, edges, contents, out)
 
 @cuda.jit
 def calc_px_cudakernel(content_pt, content_phi, out):
