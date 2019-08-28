@@ -288,13 +288,13 @@ def calc_pz(content_pt, content_eta):
     return out
 
 @numba.njit(parallel=True)
-def calc_pz_kernel(content_pt, content_eta, out):
+def calc_en_kernel(content_pt, content_eta, content_mass, out):
     for iobj in numba.prange(content_pt.shape[0]-1):
-        out[iobj] = content_pt[iobj] * np.sinh(content_eta[iobj])
+        out[iobj] = np.sqrt(content_mass[iobj]**2 + (1+np.sinh(content_eta[iobj])**2)*content_pt[iobj]**2)
 
-def calc_pz(content_pt, content_eta):
+def calc_en(content_pt, content_eta, content_mass):
     out = np.zeros(content_pt.shape[0]-1, dtype=content_pt.dtype)
-    calc_pz_kernel(content_pt, content_eta, out)
+    calc_en_kernel(content_pt, content_eta, content_mass, out)
     return out
 
 ########################### analysis specific kernels ##############################
