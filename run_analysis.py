@@ -64,6 +64,25 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
     lepton_veto = NUMPY_LIB.add(ha.sum_in_offsets(muons, veto_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, veto_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
     njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
+
+    def sum_in_offsets(content, offsets, mask_rows, mask_content, dtype):
+
+        out = np.zeros(len(offsets) - 1, dtype=dtype)
+
+        for iev in range(offsets.shape[0]-1):
+            if not mask_rows[iev]:
+                continue
+
+            start = offsets[iev]
+            end = offsets[iev + 1]
+            for ielem in range(start, end):
+                if mask_content[ielem]:
+                    out[iev] += 1
+
+
+    import timeit
+    t = timeit.repeat((lambda: sum_in_offsets(jets, jets.offsets, mask_events, good_jets, NUMPY_LIB.int8)), number = 10, repeat=2)
+    print(t)    
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     met = (scalars["MET_pt"] > 20)
 
@@ -178,7 +197,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     #evaluate DNN
     if DNN:
-        DNN_pred = evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, DNN, DNN_model)
+        DNN_pred = evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, nEvents, DNN, DNN_model)
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}

@@ -135,7 +135,7 @@ def compute_btag_weights(jets, mask_rows, mask_content, evaluator):
 
 ############################################# HIGH LEVEL VARIABLES (DNN evaluation, ...) ############################################
 
-def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, DNN, DNN_model):
+def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, nEvents, DNN, DNN_model):
     
         # make inputs (defined in backend (not extremely nice))
         jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
