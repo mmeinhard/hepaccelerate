@@ -2,6 +2,7 @@ import os
 import numba
 import numpy as np
 import math
+import itertools
 
 ########################### general useful functions #################################
 
@@ -419,6 +420,37 @@ def make_leps_inputs(electrons, muons, numEvents, feats, mask_rows, el_mask_cont
         elif f == "en":
             feature["en"] = calc_en(feature["pt"], feature["eta"], feature["mass"])
         dnn_leps_kernel(feature[f], feats.index(f), mask_rows, out)
+    return out
+
+# kernel in order to calculate dijet_masses from jet inputs
+@numba.njit(parallel=True)
+def dijet_masses_kernel(jets_feats, mask_rows, DNN_pred, comb, out):
+    for iev in numba.prange(jets_feats.shape[0]-1):
+        if not mask_rows[iev]:
+            continue
+
+        idx1, idx2 = comb[DNN_pred[iev]]
+        jet1 = jets_feats[iev][idx1][:]
+        jet2 = jets_feats[iev][idx2][:]
+        
+        en = jet1[3] + jet2[3]
+        px = jet1[4] + jet2[4]
+        py = jet1[5] + jet2[5]
+        pz = jet1[6] + jet2[6]
+
+        mass = np.sqrt(en*en - px*px - py*py - pz*pz)  
+
+        out[iev] = mass
+
+def dijet_masses(jets_feats, mask_events, DNN_pred):
+    out = -999.*np.ones(len(DNN_pred), dtype=np.float32)
+    comb = [(i,j) for i,j in itertools.combinations(reversed(range(10)),2)]
+    comb = [item for t in comb for item in t]
+    comb = np.array(comb).reshape(-1,2)
+
+    DNN_pred = np.argmax(DNN_pred, axis=1)
+
+    dijet_masses_kernel(jets_feats, mask_events, DNN_pred, comb, out)
     return out
 
 @numba.njit(parallel=True)

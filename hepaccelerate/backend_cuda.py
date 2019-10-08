@@ -5,6 +5,8 @@ import cupy
 import math
 import numpy as np
 
+import itertools
+
 ########################################## general useful kernels ####################################################
 
 @cuda.jit(device=True)
@@ -130,6 +132,7 @@ def multiply_in_offsets(struct, content, mask_rows, mask_content, dtype=None):
         dtype = content.dtype
     product_offsets = cupy.ones(len(struct.offsets) - 1, dtype=dtype)
     multiply_in_offsets_cudakernel[32, 1024](content, struct.offsets, mask_rows, mask_content, product_offsets)
+    cuda.synchronize()
     return product_offsets
 
 
@@ -287,7 +290,7 @@ def calc_px_cudakernel(content_pt, content_phi, out):
 
 def calc_px(content_pt, content_phi):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
-    calc_px_cudakernel(content_pt, content_phi, out)
+    calc_px_cudakernel[32, 1024](content_pt, content_phi, out)
     cuda.synchronize()
     return out
 
@@ -301,7 +304,7 @@ def calc_py_cudakernel(content_pt, content_phi, out):
 
 def calc_py(content_pt, content_phi):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
-    calc_py_cudakernel(content_pt, content_phi, out)
+    calc_py_cudakernel[32, 1024](content_pt, content_phi, out)
     cuda.synchronize()
     return out
 
@@ -315,7 +318,7 @@ def calc_pz_cudakernel(content_pt, content_eta, out):
 
 def calc_pz(content_pt, content_eta):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
-    calc_pz_cudakernel(content_pt, content_eta, out)
+    calc_pz_cudakernel[32, 1024](content_pt, content_eta, out)
     cuda.synchronize()
     return out
 
@@ -329,7 +332,7 @@ def calc_en_cudakernel(content_pt, content_eta, content_mass, out):
 
 def calc_en(content_pt, content_eta, content_mass):
     out = cupy.zeros(content_pt.shape[0] - 1, dtype=cupy.float32)
-    calc_en_cudakernel(content_pt, content_eta, content_mass, out)
+    calc_en_cudakernel[32, 1024](content_pt, content_eta, content_mass, out)
     cuda.synchronize()
     return out
 
@@ -409,7 +412,7 @@ def make_jets_inputs(content, offsets, nobj, feats, mask_rows, mask_content):
             feature = calc_en(content.pt, content.eta, content.mass)
         else:
             feature = getattr(content, f)
-        dnn_jets_cudakernel(feature, offsets, feats.index(f), nobj, mask_rows, mask_content, out)
+        dnn_jets_cudakernel[32,1024](feature, offsets, feats.index(f), nobj, mask_rows, mask_content, out)
     cuda.synchronize()
     return out
 
@@ -444,7 +447,7 @@ def make_leps_inputs(electrons, muons, numEvents, feats, mask_rows, el_mask_cont
             feature["pz"] = calc_pz(feature["pt"], feature["eta"])
         elif f == "en":
             feature["en"] = calc_en(feature["pt"], feature["eta"], feature["mass"])
-        dnn_leps_cudakernel(feature[f], feats.index(f), mask_rows, out)
+        dnn_leps_cudakernel[32, 1024](feature[f], feats.index(f), mask_rows, out)
     cuda.synchronize()
     return out
 
@@ -469,7 +472,43 @@ def make_met_inputs(content, numEvents, feats, mask_rows):
             feature = calc_py(content["MET_pt"], content["MET_phi"])
         else:
             feature = content["MET_" + f]
-        dnn_met_cudakernel(feature, feats.index(f), mask_rows, out)
+        dnn_met_cudakernel[32, 1024](feature, feats.index(f), mask_rows, out)
+    cuda.synchronize()
+    return out
+
+# kernel in order to calculate dijet_masses from jet inputs
+@cuda.jit
+def dijet_masses_cudakernel(jets_feats, mask_rows, DNN_pred, comb, out):
+
+    xi = cuda.grid(1)
+    xstride = cuda.gridsize(1)
+
+    for iev in range(xi, jets_feats.shape[0]-1, xstride):
+        if not mask_rows[iev]:
+            continue
+
+        idx1, idx2 = comb[DNN_pred[iev]]
+        jet1 = jets_feats[iev][idx1][:]
+        jet2 = jets_feats[iev][idx2][:]
+
+        en = jet1[3] + jet2[3]
+        px = jet1[4] + jet2[4]
+        py = jet1[5] + jet2[5]
+        pz = jet1[6] + jet2[6]
+
+        mass = math.sqrt(en*en - px*px - py*py - pz*pz)
+
+        out[iev] = mass
+
+def dijet_masses(jets_feats, mask_events, DNN_pred):
+    out = -999.*cupy.ones(len(DNN_pred), dtype=cupy.float32)
+    comb = [(i,j) for i,j in itertools.combinations(reversed(range(10)),2)]
+    comb = [item for t in comb for item in t]
+    comb = cupy.array(comb).reshape(-1,2)
+
+    DNN_pred = cupy.argmax(DNN_pred, axis=1)
+
+    dijet_masses_cudakernel[32, 1024](jets_feats, mask_events, DNN_pred, comb, out)
     cuda.synchronize()
     return out
 

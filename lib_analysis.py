@@ -150,7 +150,7 @@ def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, 
             # numpy transfer needed for keras
             inputs = NUMPY_LIB.asnumpy(inputs)
 
-        if DNN.startswith("cmb"):
+        if DNN.startswith("cmb") or DNN.startswith("mass"):
             # numpy transfer needed for keras
             if not isinstance(jets_feats, np.ndarray):
                 inputs = [NUMPY_LIB.asnumpy(x) for x in inputs]
@@ -165,6 +165,12 @@ def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, 
             DNN_pred = NUMPY_LIB.array(DNN_model.predict(inputs, batch_size = 10000))
             if DNN.endswith("binary"):
                 DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
+
+        print("DNN inference finished.")
+        if DNN == "mass_fit":
+            dijet_masses = ha.dijet_masses(jets_feats, mask_events, DNN_pred)
+
+            return dijet_masses
 
         return DNN_pred
 
