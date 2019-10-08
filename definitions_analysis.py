@@ -88,7 +88,7 @@ samples_info = {
     "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8": {
             "process": "ttHToNonbb",
             "XS": 0.2150955,
-            "ngen_weight": 4484065.542378001},
+            "ngen_weight": 5722756.565262001},
     "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 88.341903326,
             "ngen_weight": 283000430.5968169
@@ -96,19 +96,6 @@ samples_info = {
     "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 377.9607353256,
             "ngen_weight": 1647945788.3386502
-            },
-
-    "TTTo2L2Nu_TuneCP5_13TeV-powheg-pythia8": {
-            "XS": 88.341903326,
-            "ngen_weight": 283000430.5968169
-            },
-    "TTToHadronic_TuneCP5_13TeV-powheg-pythia8": {
-            "XS": 377.9607353256,
-            "ngen_weight": 1647945788.3386502
-            },
-    "TTToSemiLeptonic_TuneCP5_13TeV-powheg-pythia8": {
-            "XS": 365.45736135,
-            "ngen_weight": 720253370.0403845
             },
 }
 
