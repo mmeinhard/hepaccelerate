@@ -11,9 +11,9 @@ import hepaccelerate
 from hepaccelerate.utils import Results, NanoAODDataset, Histogram, choose_backend
 
 import tensorflow as tf
-from keras.models import load_model
+from keras.models import load_model, model_from_json
 import itertools
-from lib_analysis import mse0,mae0,r2_score0
+from lib_analysis import mse0,mae0,r2_score0,decorr
 
 from definitions_analysis import histogram_settings
 
@@ -122,6 +122,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     #evaluate DNN
     if DNN:
         DNN_pred = evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, nEvents, DNN, DNN_model)
+
+    print("----------------------------")
+    print(DNN_pred[5])
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
@@ -322,7 +325,12 @@ if __name__ == "__main__":
         # in case of DNN evaluation: load model
         model = None
         if args.DNN:
-            model = load_model(args.path_to_model, custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
+            #model = load_model(args.path_to_model, custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
+            json_file = open(args.path_to_model + "model.json", "r")
+            loaded_model_json = json_file.read()
+            json_file.close()
+            model = model_from_json(loaded_model_json, custom_objects=dict(itertools=itertools))
+            model.load_weights(args.path_to_model + "model.hdf5")
 
         print(args.categories)
         #### this is where the magic happens: run the main analysis

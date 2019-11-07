@@ -162,13 +162,14 @@ def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, 
             # run prediction (done on GPU)
             DNN_pred = DNN_model.predict(inputs, batch_size = 10000)
             # in case of NUMPY_LIB is cupy: transfer numpy output back to cupy array for further computation
-            DNN_pred = NUMPY_LIB.array(DNN_model.predict(inputs, batch_size = 10000))
+            DNN_pred = NUMPY_LIB.array(DNN_pred)
             if DNN.endswith("binary"):
-                DNN_pred = NUMPY_LIB.reshape(DNN_pred, DNN_pred.shape[0])
+                DNN_pred = NUMPY_LIB.reshape(DNN_pred, (DNN_pred.shape[0], -1))
 
         print("DNN inference finished.")
         if DNN == "mass_fit":
             dijet_masses = ha.dijet_masses(jets_feats, mask_events, DNN_pred)
+
 
             return dijet_masses
 
@@ -201,6 +202,7 @@ def chunks(l, n):
 import keras.backend as K
 import keras.losses
 import keras.utils.generic_utils
+from Disco_tf import distance_corr
 
 def mse0(y_true,y_pred):
     return K.mean( K.square(y_true[:,0] - y_pred[:,0]) )
@@ -210,4 +212,11 @@ def mae0(y_true,y_pred):
 
 def r2_score0(y_true,y_pred):
     return 1. - K.sum( K.square(y_true[:,0] - y_pred[:,0]) ) / K.sum( K.square(y_true[:,0] - K.mean(y_true[:,0]) ) )
+
+def decorr(var_1, var_2, weights, kappa):
+
+    def loss(y_true, y_pred):
+        return keras.losses.categorical_crossentropy(y_true, y_pred) + kappa * distance_corr(var_1, var_2, weights)
+
+    return loss
 

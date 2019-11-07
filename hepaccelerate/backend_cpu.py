@@ -151,8 +151,8 @@ def get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, ou
                     index_to_get += 1
 
 def get_in_offsets(content, offsets, indices, mask_rows, mask_content):
-    #out = np.zeros(len(offsets) - 1, dtype=content.dtype)
-    out = -999.*np.ones(len(offsets) - 1, dtype=content.dtype) #to avoid histos being filled with 0 for non-existing objects, i.e. in events with no fat jets
+    out = np.zeros(len(offsets) - 1, dtype=content.dtype)
+    #out = -999.*np.ones(len(offsets) - 1, dtype=content.dtype) #to avoid histos being filled with 0 for non-existing objects, i.e. in events with no fat jets
     get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, out)
     return out
 
@@ -408,6 +408,10 @@ def make_leps_inputs(electrons, muons, numEvents, feats, mask_rows, el_mask_cont
     feature["eta"] = get_in_offsets(muons.eta, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.eta, electrons.offsets, inds, mask_rows, el_mask_content)
     feature["phi"] = get_in_offsets(muons.phi, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.phi, electrons.offsets, inds, mask_rows, el_mask_content)
     feature["mass"] = get_in_offsets(muons.mass, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.mass, electrons.offsets, inds, mask_rows, el_mask_content)
+
+    import pdb
+    pdb.set_trace()
+    print("after lepton feature")
 
     out = np.zeros((numEvents, 1, len(feats)), dtype=np.float32)
     for f in feats:
