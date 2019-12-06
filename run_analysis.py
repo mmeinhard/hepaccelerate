@@ -68,7 +68,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     met = (scalars["MET_pt"] > 20)
 
-    mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
+    #mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
 
     ### calculation of all needed variables
     var = {}
@@ -82,8 +82,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     indices["subleading"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.int32)
 
     variables = [
-        ("jet", jets, good_jets, "leading", ["pt", "eta"]),
-        ("bjet", jets, bjets, "leading", ["pt", "eta"]),
+        ("jet", jets, good_jets, "leading", ["pt_nom", "eta", "btagDeepB"]),
+        ("bjet", jets, bjets, "leading", ["pt_nom", "eta"]),
+        ("jet", jets, good_jets, "subleading", ["pt_nom", "eta", "btagDeepB"])
     ]
 
     # special role of lepton
@@ -93,6 +94,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     # all other variables
     for v in variables:
         calculate_variable_features(v, mask_events, indices, var)
+
+    #synch
+    mask = (scalars["event"] == 2895765)
 
     # calculate weights for MC samples
     weights = {}
@@ -106,18 +110,23 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * pu_weights
 
         # lepton SF corrections
-        electron_weights = compute_lepton_weights(electrons, electrons.pt, (electrons.deltaEtaSC + electrons.eta), mask_events, good_electrons, evaluator, ["el_triggerSF", "el_recoSF", "el_idSF"])
-        muon_weights = compute_lepton_weights(muons, muons.pt, NUMPY_LIB.abs(muons.eta), mask_events, good_muons, evaluator, ["mu_triggerSF", "mu_isoSF", "mu_idSF"])
+        print("electron")
+        electron_weights = compute_lepton_weights(electrons, (electrons.deltaEtaSC + electrons.eta), electrons.pt, mask_events, good_electrons, evaluator, ["el_triggerSF", "el_recoSF", "el_idSF"], mask)
+        print("muons")
+        muon_weights = compute_lepton_weights(muons, muons.pt, NUMPY_LIB.abs(muons.eta), mask_events, good_muons, evaluator, ["mu_triggerSF", "mu_isoSF", "mu_idSF"], mask)
         weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
 
         # btag SF corrections
-        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator)
+        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator, mask)
         weights["nominal"] = weights["nominal"] * btag_weights
 
     #in case of data: check if event is in golden lumi file
     if not is_mc and not (lumimask is None):
         mask_lumi = lumimask(scalars["run"], scalars["luminosityBlock"])
         mask_events = mask_events & mask_lumi
+
+    import pdb
+    pdb.set_trace()
 
     #evaluate DNN
     if DNN:
@@ -243,7 +252,7 @@ if __name__ == "__main__":
 
     #define arrays to load: these are objects that will be kept together
     arrays_objects = [
-        "Jet_pt", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass", "Jet_hadronFlavour",
+        "Jet_pt_nom", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass", "Jet_hadronFlavour",
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge",
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy",
     ]
@@ -284,7 +293,8 @@ if __name__ == "__main__":
     for ibatch, files_in_batch in enumerate(chunks(filenames, args.files_per_batch)):
         #define our dataset
         structs = ["Jet", "Muon", "Electron"]
-        dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", structs, arrays_event)
+        #dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", structs, arrays_event)
+        dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "nanoAOD/Events", structs, arrays_event)
         dataset.get_cache_dir = lambda fn,loc=args.cache_location: os.path.join(loc, fn)
 
         if not args.from_cache:
