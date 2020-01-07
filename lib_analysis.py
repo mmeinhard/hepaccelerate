@@ -57,7 +57,7 @@ def jet_selection(jets, leps, mask_leps, cuts):
 
     jets_pass_dr = ha.mask_deltar_first(jets, jets.masks["all"], leps, mask_leps, cuts["dr"])
     jets.masks["pass_dr"] = jets_pass_dr
-    good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & jets_pass_dr
+    good_jets = (jets.pt_nom > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & jets_pass_dr
     if cuts["type"] == "jet":
       good_jets &= (jets.puId>=cuts["puId"]) 
 
@@ -68,6 +68,7 @@ def jet_selection(jets, leps, mask_leps, cuts):
 
 ### PileUp weight
 def compute_pu_weights(pu_corrections_target, weights, mc_nvtx, reco_nvtx):
+
     pu_edges, (values_nom, values_up, values_down) = pu_corrections_target
 
     src_pu_hist = get_histogram(mc_nvtx, weights, pu_edges)
@@ -103,24 +104,27 @@ def load_puhist_target(filename):
 
 
 # lepton scale factors
-def compute_lepton_weights(leps, lepton_x, lepton_y, mask_rows, mask_content, evaluator, SF_list):
+def compute_lepton_weights(leps, lepton_x, lepton_y, mask_rows, mask_content, evaluator, SF_list, mask):
 
     weights = NUMPY_LIB.ones(len(lepton_x))
 
     for SF in SF_list:
-        weights *= evaluator[SF](lepton_x, lepton_y)
-    
+
+        if SF == "el_triggerSF":
+            weights *= evaluator[SF](lepton_y, lepton_x)
+        else:
+            weights *= evaluator[SF](lepton_x, lepton_y)
+        
     per_event_weights = ha.multiply_in_offsets(leps, weights, mask_rows, mask_content)
     return per_event_weights
 
-
 # btagging scale factor 
-def compute_btag_weights(jets, mask_rows, mask_content, evaluator):
+def compute_btag_weights(jets, mask_rows, mask_content, evaluator, mask):
 
     pJet_weight = NUMPY_LIB.ones(len(mask_content))
 
     for tag in ["BTagSFDeepCSV_3_iterativefit_central_0", "BTagSFDeepCSV_3_iterativefit_central_1", "BTagSFDeepCSV_3_iterativefit_central_2"]:
-        SF_btag = evaluator[tag](jets.eta, jets.pt, jets.btagDeepB)
+        SF_btag = evaluator[tag](jets.eta, jets.pt_nom, jets.btagDeepB)
         if tag.endswith("0"):
             SF_btag[jets.hadronFlavour != 5] = 1.
         if tag.endswith("1"):
