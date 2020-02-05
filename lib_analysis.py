@@ -178,7 +178,6 @@ def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, 
         if DNN == "mass_fit":
             dijet_masses = ha.dijet_masses(jets_feats, mask_events, DNN_pred)
 
-
             return dijet_masses
 
         return DNN_pred

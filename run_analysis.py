@@ -11,9 +11,15 @@ import hepaccelerate
 from hepaccelerate.utils import Results, NanoAODDataset, Histogram, choose_backend
 
 import tensorflow as tf
+<<<<<<< HEAD
 from keras.models import load_model, model_from_json
 import itertools
 from lib_analysis import mse0,mae0,r2_score0,decorr
+=======
+from keras.models import load_model
+import itertools
+from lib_analysis import mse0,mae0,r2_score0
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
 
 from definitions_analysis import histogram_settings
 
@@ -66,8 +72,12 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
+<<<<<<< HEAD
     #met = (scalars["MET_pt"] > 20)
     met = (scalars["MET_pt_nom"] > 20)
+=======
+    met = (scalars["MET_pt"] > 20)
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
 
     #mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
 
@@ -83,11 +93,17 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     indices["subleading"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.int32)
 
     variables = [
+<<<<<<< HEAD
         #("jet", jets, good_jets, "leading", ["pt", "eta", "btagDeepB"]),
         ("jet", jets, good_jets, "leading", ["pt_nom", "eta"]),
         ("bjet", jets, bjets, "leading", ["pt_nom", "eta"]),
         #("jet", jets, good_jets, "subleading", ["pt", "eta", "btagDeepB"])
         #("jet", jets, good_jets, "subleading", ["pt", "eta"])
+=======
+        ("jet", jets, good_jets, "leading", ["pt_nom", "eta", "btagDeepB"]),
+        ("bjet", jets, bjets, "leading", ["pt_nom", "eta"]),
+        ("jet", jets, good_jets, "subleading", ["pt_nom", "eta", "btagDeepB"])
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
     ]
 
     # special role of lepton
@@ -99,7 +115,11 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         calculate_variable_features(v, mask_events, indices, var)
 
     #synch
+<<<<<<< HEAD
     #mask = (scalars["event"] == 2895765)
+=======
+    mask = (scalars["event"] == 2895765)
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
 
     # calculate weights for MC samples
     weights = {}
@@ -113,12 +133,23 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * pu_weights
 
         # lepton SF corrections
+<<<<<<< HEAD
         electron_weights = compute_lepton_weights(electrons, (electrons.deltaEtaSC + electrons.eta), electrons.pt, mask_events, good_electrons, evaluator, ["el_triggerSF", "el_recoSF", "el_idSF"])
         muon_weights = compute_lepton_weights(muons, muons.pt, NUMPY_LIB.abs(muons.eta), mask_events, good_muons, evaluator, ["mu_triggerSF", "mu_isoSF", "mu_idSF"])
         weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
 
         # btag SF corrections
         btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator)
+=======
+        print("electron")
+        electron_weights = compute_lepton_weights(electrons, (electrons.deltaEtaSC + electrons.eta), electrons.pt, mask_events, good_electrons, evaluator, ["el_triggerSF", "el_recoSF", "el_idSF"], mask)
+        print("muons")
+        muon_weights = compute_lepton_weights(muons, muons.pt, NUMPY_LIB.abs(muons.eta), mask_events, good_muons, evaluator, ["mu_triggerSF", "mu_isoSF", "mu_idSF"], mask)
+        weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
+
+        # btag SF corrections
+        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator, mask)
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
         weights["nominal"] = weights["nominal"] * btag_weights
 
     #in case of data: check if event is in golden lumi file
@@ -126,6 +157,12 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         mask_lumi = lumimask(scalars["run"], scalars["luminosityBlock"])
         mask_events = mask_events & mask_lumi
 
+<<<<<<< HEAD
+=======
+    import pdb
+    pdb.set_trace()
+
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
     #evaluate DNN
     if DNN:
         DNN_pred = evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, nEvents, DNN, DNN_model)
@@ -186,6 +223,10 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
             if DNN:
                 if DNN=="mass_fit":
+<<<<<<< HEAD
+=======
+                    print("Dijet_masses:", DNN_pred.shape, DNN_pred[0])
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
                     hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0.,300.,30)))
                     hist_DNN_zoom = Histogram(*ha.histogram_from_vector(DNN_pred[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0.,170.,30)))
                 else:
@@ -205,7 +246,10 @@ if __name__ == "__main__":
     parser.add_argument('--nthreads', action='store', help='Number of CPU threads to use', type=int, default=4, required=False)
     parser.add_argument('--files-per-batch', action='store', help='Number of files to process per batch', type=int, default=1, required=False)
     parser.add_argument('--cache-location', action='store', help='Path prefix for the cache, must be writable', type=str, default=os.path.join(os.getcwd(), 'cache'))
+<<<<<<< HEAD
     parser.add_argument('--cache-only', action='store_true', help='Produce only cached files')
+=======
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
     parser.add_argument('--outdir', action='store', help='directory to store outputs', type=str, default=os.getcwd())
     parser.add_argument('--filelist', action='store', help='List of files to load', type=str, default=None, required=False)
     parser.add_argument('--sample', action='store', help='sample name', type=str, default=None, required=True)
@@ -258,7 +302,11 @@ if __name__ == "__main__":
     arrays_event = [
         "PV_npvsGood", "PV_ndof", "PV_npvs", "PV_score", "PV_x", "PV_y", "PV_z", "PV_chi2",
         "Flag_goodVertices", "Flag_globalSuperTightHalo2016Filter", "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter", "Flag_eeBadScFilter", "Flag_ecalBadCalibFilter",
+<<<<<<< HEAD
         "MET_pt_nom", "MET_phi_nom", "MET_sumEt",
+=======
+        "MET_pt", "MET_phi", "MET_sumEt",
+>>>>>>> e564f7ec9533914422415b55abd21d27855416d9
         "run", "luminosityBlock", "event",
         "nGenPart"
     ]
