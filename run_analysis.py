@@ -348,7 +348,7 @@ if __name__ == "__main__":
 
             print(results)
 
-        #Save the results
-        if not os.path.isdir(args.outdir):
-            os.makedirs(args.outdir)
-        results.save_json(os.path.join(outdir,"out_{}.json".format(args.sample)))
+            #Save the results
+            if not os.path.isdir(args.outdir):
+                os.makedirs(args.outdir)
+            results.save_json(os.path.join(outdir,"out_{}.json".format(args.sample)))

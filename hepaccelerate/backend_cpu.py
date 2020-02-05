@@ -409,10 +409,6 @@ def make_leps_inputs(electrons, muons, numEvents, feats, mask_rows, el_mask_cont
     feature["phi"] = get_in_offsets(muons.phi, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.phi, electrons.offsets, inds, mask_rows, el_mask_content)
     feature["mass"] = get_in_offsets(muons.mass, muons.offsets, inds, mask_rows, mu_mask_content) + get_in_offsets(electrons.mass, electrons.offsets, inds, mask_rows, el_mask_content)
 
-    import pdb
-    pdb.set_trace()
-    print("after lepton feature")
-
     out = np.zeros((numEvents, 1, len(feats)), dtype=np.float32)
     for f in feats:
         if f == "px":
