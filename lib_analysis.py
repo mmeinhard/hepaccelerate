@@ -57,6 +57,7 @@ def jet_selection(jets, leps, mask_leps, cuts):
 
     jets_pass_dr = ha.mask_deltar_first(jets, jets.masks["all"], leps, mask_leps, cuts["dr"])
     jets.masks["pass_dr"] = jets_pass_dr
+    #good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & jets_pass_dr
     good_jets = (jets.pt_nom > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & jets_pass_dr
     if cuts["type"] == "jet":
       good_jets &= (jets.puId>=cuts["puId"]) 
@@ -104,7 +105,7 @@ def load_puhist_target(filename):
 
 
 # lepton scale factors
-def compute_lepton_weights(leps, lepton_x, lepton_y, mask_rows, mask_content, evaluator, SF_list, mask):
+def compute_lepton_weights(leps, lepton_x, lepton_y, mask_rows, mask_content, evaluator, SF_list):
 
     weights = NUMPY_LIB.ones(len(lepton_x))
 
@@ -119,11 +120,12 @@ def compute_lepton_weights(leps, lepton_x, lepton_y, mask_rows, mask_content, ev
     return per_event_weights
 
 # btagging scale factor 
-def compute_btag_weights(jets, mask_rows, mask_content, evaluator, mask):
+def compute_btag_weights(jets, mask_rows, mask_content, evaluator):
 
     pJet_weight = NUMPY_LIB.ones(len(mask_content))
 
     for tag in ["BTagSFDeepCSV_3_iterativefit_central_0", "BTagSFDeepCSV_3_iterativefit_central_1", "BTagSFDeepCSV_3_iterativefit_central_2"]:
+        #SF_btag = evaluator[tag](jets.eta, jets.pt, jets.btagDeepB)
         SF_btag = evaluator[tag](jets.eta, jets.pt_nom, jets.btagDeepB)
         if tag.endswith("0"):
             SF_btag[jets.hadronFlavour != 5] = 1.
@@ -142,8 +144,10 @@ def compute_btag_weights(jets, mask_rows, mask_content, evaluator, mask):
 def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, nEvents, DNN, DNN_model):
     
         # make inputs (defined in backend (not extremely nice))
-        jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
-        met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
+        #jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
+        jets_feats = ha.make_jets_inputs(jets, jets.offsets, 10, ["pt_nom","eta","phi","en","px","py","pz", "btagDeepB"], mask_events, good_jets)
+        #met_feats = ha.make_met_inputs(scalars, nEvents, ["phi","pt","sumEt","px","py"], mask_events)
+        met_feats = ha.make_met_inputs(scalars, nEvents, ["phi_nom","pt_nom","sumEt","px","py"], mask_events)
         leps_feats = ha.make_leps_inputs(electrons, muons, nEvents, ["pt","eta","phi","en","px","py","pz"], mask_events, good_electrons, good_muons)
 
         inputs = [jets_feats, leps_feats, met_feats]
@@ -164,7 +168,7 @@ def evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, 
             DNN_pred = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.float32)
         else:
             # run prediction (done on GPU)
-            DNN_pred = DNN_model.predict(inputs, batch_size = 10000)
+            DNN_pred = DNN_model.predict(inputs, batch_size = 5000)
             # in case of NUMPY_LIB is cupy: transfer numpy output back to cupy array for further computation
             DNN_pred = NUMPY_LIB.array(DNN_pred)
             if DNN.endswith("binary"):

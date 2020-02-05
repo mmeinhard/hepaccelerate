@@ -66,7 +66,8 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
-    met = (scalars["MET_pt"] > 20)
+    #met = (scalars["MET_pt"] > 20)
+    met = (scalars["MET_pt_nom"] > 20)
 
     #mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
 
@@ -82,9 +83,11 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     indices["subleading"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.int32)
 
     variables = [
-        ("jet", jets, good_jets, "leading", ["pt_nom", "eta", "btagDeepB"]),
+        #("jet", jets, good_jets, "leading", ["pt", "eta", "btagDeepB"]),
+        ("jet", jets, good_jets, "leading", ["pt_nom", "eta"]),
         ("bjet", jets, bjets, "leading", ["pt_nom", "eta"]),
-        ("jet", jets, good_jets, "subleading", ["pt_nom", "eta", "btagDeepB"])
+        #("jet", jets, good_jets, "subleading", ["pt", "eta", "btagDeepB"])
+        #("jet", jets, good_jets, "subleading", ["pt", "eta"])
     ]
 
     # special role of lepton
@@ -96,7 +99,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         calculate_variable_features(v, mask_events, indices, var)
 
     #synch
-    mask = (scalars["event"] == 2895765)
+    #mask = (scalars["event"] == 2895765)
 
     # calculate weights for MC samples
     weights = {}
@@ -110,14 +113,12 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * pu_weights
 
         # lepton SF corrections
-        print("electron")
-        electron_weights = compute_lepton_weights(electrons, (electrons.deltaEtaSC + electrons.eta), electrons.pt, mask_events, good_electrons, evaluator, ["el_triggerSF", "el_recoSF", "el_idSF"], mask)
-        print("muons")
-        muon_weights = compute_lepton_weights(muons, muons.pt, NUMPY_LIB.abs(muons.eta), mask_events, good_muons, evaluator, ["mu_triggerSF", "mu_isoSF", "mu_idSF"], mask)
+        electron_weights = compute_lepton_weights(electrons, (electrons.deltaEtaSC + electrons.eta), electrons.pt, mask_events, good_electrons, evaluator, ["el_triggerSF", "el_recoSF", "el_idSF"])
+        muon_weights = compute_lepton_weights(muons, muons.pt, NUMPY_LIB.abs(muons.eta), mask_events, good_muons, evaluator, ["mu_triggerSF", "mu_isoSF", "mu_idSF"])
         weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
 
         # btag SF corrections
-        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator, mask)
+        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator)
         weights["nominal"] = weights["nominal"] * btag_weights
 
     #in case of data: check if event is in golden lumi file
@@ -125,15 +126,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         mask_lumi = lumimask(scalars["run"], scalars["luminosityBlock"])
         mask_events = mask_events & mask_lumi
 
-    import pdb
-    pdb.set_trace()
-
     #evaluate DNN
     if DNN:
         DNN_pred = evaluate_DNN(jets, good_jets, electrons, good_electrons, muons, good_muons, scalars, mask_events, nEvents, DNN, DNN_model)
-
-    print("----------------------------")
-    print(DNN_pred[5])
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
@@ -191,7 +186,6 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
             if DNN:
                 if DNN=="mass_fit":
-                    print("Dijet_masses:", DNN_pred.shape, DNN_pred[0])
                     hist_DNN = Histogram(*ha.histogram_from_vector(DNN_pred[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0.,300.,30)))
                     hist_DNN_zoom = Histogram(*ha.histogram_from_vector(DNN_pred[cut], weights["nominal"][cut], NUMPY_LIB.linspace(0.,170.,30)))
                 else:
@@ -211,6 +205,7 @@ if __name__ == "__main__":
     parser.add_argument('--nthreads', action='store', help='Number of CPU threads to use', type=int, default=4, required=False)
     parser.add_argument('--files-per-batch', action='store', help='Number of files to process per batch', type=int, default=1, required=False)
     parser.add_argument('--cache-location', action='store', help='Path prefix for the cache, must be writable', type=str, default=os.path.join(os.getcwd(), 'cache'))
+    parser.add_argument('--cache-only', action='store_true', help='Produce only cached files')
     parser.add_argument('--outdir', action='store', help='directory to store outputs', type=str, default=os.getcwd())
     parser.add_argument('--filelist', action='store', help='List of files to load', type=str, default=None, required=False)
     parser.add_argument('--sample', action='store', help='sample name', type=str, default=None, required=True)
@@ -263,7 +258,7 @@ if __name__ == "__main__":
     arrays_event = [
         "PV_npvsGood", "PV_ndof", "PV_npvs", "PV_score", "PV_x", "PV_y", "PV_z", "PV_chi2",
         "Flag_goodVertices", "Flag_globalSuperTightHalo2016Filter", "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter", "Flag_eeBadScFilter", "Flag_ecalBadCalibFilter",
-        "MET_pt", "MET_phi", "MET_sumEt",
+        "MET_pt_nom", "MET_phi_nom", "MET_sumEt",
         "run", "luminosityBlock", "event",
         "nGenPart"
     ]
@@ -317,39 +312,43 @@ if __name__ == "__main__":
             print("loading dataset from cache")
             dataset.from_cache(verbose=True, nthreads=args.nthreads)
 
-        if is_mc:
+        if not args.cache_only:
 
-            # add information needed for MC corrections
-            parameters["pu_corrections_target"] = load_puhist_target(parameters["pu_corrections_file"])
+            if is_mc:
 
-            ext = extractor()
-            for corr in parameters["corrections"]:
-                ext.add_weight_sets([corr])
-            ext.finalize()
-            evaluator = ext.make_evaluator()
+                # add information needed for MC corrections
+                parameters["pu_corrections_target"] = load_puhist_target(parameters["pu_corrections_file"])
 
-
-        if ibatch == 0:
-            print(dataset.printout())
-
-        # in case of DNN evaluation: load model
-        model = None
-        if args.DNN:
-            #model = load_model(args.path_to_model, custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
-            json_file = open(args.path_to_model + "model.json", "r")
-            loaded_model_json = json_file.read()
-            json_file.close()
-            model = model_from_json(loaded_model_json, custom_objects=dict(itertools=itertools))
-            model.load_weights(args.path_to_model + "model.hdf5")
-
-        print(args.categories)
-        #### this is where the magic happens: run the main analysis
-        results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model)
+                ext = extractor()
+                for corr in parameters["corrections"]:
+                    ext.add_weight_sets([corr])
+                ext.finalize()
+                evaluator = ext.make_evaluator()
 
 
-    print(results)
+            if ibatch == 0:
+                print(dataset.printout())
 
-    #Save the results
-    if not os.path.isdir(args.outdir):
-        os.makedirs(args.outdir)
-    results.save_json(os.path.join(outdir,"out_{}.json".format(args.sample)))
+            # in case of DNN evaluation: load model
+            model = None
+            if args.DNN:
+                #model = load_model(args.path_to_model, custom_objects=dict(itertools=itertools, mse0=mse0, mae0=mae0, r2_score0=r2_score0))
+                json_file = open(args.path_to_model + "model.json", "r")
+                loaded_model_json = json_file.read()
+                json_file.close()
+                model = model_from_json(loaded_model_json, custom_objects=dict(itertools=itertools))
+                model.load_weights(args.path_to_model + "model.hdf5")
+
+            print(args.categories)
+
+
+            #### this is where the magic happens: run the main analysis
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model)
+
+
+            print(results)
+
+        #Save the results
+        if not os.path.isdir(args.outdir):
+            os.makedirs(args.outdir)
+        results.save_json(os.path.join(outdir,"out_{}.json".format(args.sample)))
