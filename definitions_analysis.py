@@ -58,11 +58,12 @@ eraDependentParameters = {
         "pu_corrections_file" : "data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root",
         "corrections" : [
             "el_triggerSF SFs_ele_pt_ele_sceta_ele28_ht150_OR_ele35_2017BCDEF ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb_Data_MC_v5.0.histo.root",
-            "el_recoSF EGamma_SF2D ./data/egammaEffi_EGM2D_runBCDEF_passingRECO.histo.root",
-            "el_idSF EGamma_SF2D ./data/egammaEffi_EGM2D_runBCDEF_passingTight94X.histo.root",
+            "el_recoSF EGamma_SF2D ./data/egammaEffi_EGM2D_runBCDEF_passingRECO_v2.histo.root",
+            "el_idSF EGamma_SF2D ./data/2017_ElectronTight.histo.root",
             "mu_triggerSF IsoMu27_PtEtaBins/pt_abseta_ratio ./data/EfficienciesAndSF_RunBtoF_Nov17Nov2017.histo.root",
             "mu_isoSF NUM_TightRelIso_DEN_TightIDandIPCut_pt_abseta ./data/RunBCDEF_SF_ISO.histo.root",
             "mu_idSF NUM_TightID_DEN_genTracks_pt_abseta ./data/RunBCDEF_SF_ID.histo.root",
+            #"BTagSF * ./data/DeepCSV_94XSF_V5_B_F.btag.csv"
             "BTagSF * ./data/deepCSV_sfs_v2.btag.csv"
         ],
         "btagging algorithm" : "btagDeepB",
@@ -79,36 +80,29 @@ samples_info = {
     "ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8": {
             "process": "ttHTobb",
             "XS": 0.2934045,
-            "ngen_weight": 4216319.315883999
+            "ngen_weight": 4163245.9264759924,
+            "jets_met_corrected" : True,
             },
     "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 365.45736135,
-            "ngen_weight": 720253370.0403845
+            "ngen_weight": 32426751447.698845,
+            "jets_met_corrected": True,
             },
     "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8": {
             "process": "ttHToNonbb",
             "XS": 0.2150955,
-            "ngen_weight": 4484065.542378001},
+            "ngen_weight": 4371809.996849993,
+            "jets_met_corrected" : True,
+            },
     "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 88.341903326,
-            "ngen_weight": 283000430.5968169
+            "ngen_weight": 4720387516.446639,
+            "jets_met_corrected" : True,
             },
     "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 377.9607353256,
-            "ngen_weight": 1647945788.3386502
-            },
-
-    "TTTo2L2Nu_TuneCP5_13TeV-powheg-pythia8": {
-            "XS": 88.341903326,
-            "ngen_weight": 283000430.5968169
-            },
-    "TTToHadronic_TuneCP5_13TeV-powheg-pythia8": {
-            "XS": 377.9607353256,
-            "ngen_weight": 1647945788.3386502
-            },
-    "TTToSemiLeptonic_TuneCP5_13TeV-powheg-pythia8": {
-            "XS": 365.45736135,
-            "ngen_weight": 720253370.0403845
+            "ngen_weight": 27550924865.573532,
+            "jets_met_corrected" : True,
             },
 }
 
@@ -120,13 +114,17 @@ histogram_settings = {
     "njets" : (0,14,15),
     "nleps" : (0,10,11),
     "btags" : (0,8,9),
+    "pu_weights" : (0,4,21),
     "leading_jet_pt" : (0,500,31),
+    "leading_jet_pt_nom" : (0,500,31),
     "leading_jet_eta" : (-2.4,2.4,31),
     "leading_lepton_pt" : (0,500,31),
     "leading_lepton_eta" : (-2.4,2.4,31),
     "leading_bjet_pt" : (0,500,31),
+    "leading_bjet_pt_nom" : (0,500,31),
     "leading_bjet_eta" : (-2.4,2.4,31),
     "subleading_bjet_pt" : (0,500,31),
+    "subleading_bjet_pt_nom" : (0,500,31),
     "subleading_bjet_eta" : (-2.4,2.4,31),
 
     "higgs_pt": (0,500,31),
