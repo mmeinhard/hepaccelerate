@@ -8,8 +8,9 @@ import uproot
 def count_weighted(filenames):
     sumw = 0
     for fi in filenames:
+        print(fi)
         ff = uproot.open(fi)
-        bl = ff.get("Runs")
+        bl = ff.get("nanoAOD/Runs")
         sumw += bl.array("genEventSumw").sum()
     return sumw
 

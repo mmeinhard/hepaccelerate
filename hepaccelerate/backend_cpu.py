@@ -151,8 +151,8 @@ def get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, ou
                     index_to_get += 1
 
 def get_in_offsets(content, offsets, indices, mask_rows, mask_content):
-    out = np.zeros(len(offsets) - 1, dtype=content.dtype)
-    #out = -999.*np.ones(len(offsets) - 1, dtype=content.dtype) #to avoid histos being filled with 0 for non-existing objects, i.e. in events with no fat jets
+    #out = np.zeros(len(offsets) - 1, dtype=content.dtype)
+    out = -999.*np.ones(len(offsets) - 1, dtype=content.dtype) #to avoid histos being filled with 0 for non-existing objects, i.e. in events with no fat jets
     get_in_offsets_kernel(content, offsets, indices, mask_rows, mask_content, out)
     return out
 

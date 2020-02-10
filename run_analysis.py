@@ -25,7 +25,7 @@ config.gpu_options.allow_growth=True
 sess = tf.Session(config=config)
 
 #This function will be called for every file in the dataset
-def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, lumimask=None, cat=False, DNN=False, DNN_model=None):
+def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, is_mc=True, lumimask=None, cat=False, DNN=False, DNN_model=None, jets_met_corrected=True):
     #Output structure that will be returned and added up among the files.
     #Should be relatively small.
     ret = Results()
@@ -57,7 +57,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     # apply object selection for muons, electrons, jets
     good_muons, veto_muons = lepton_selection(muons, parameters["muons"])
     good_electrons, veto_electrons = lepton_selection(electrons, parameters["electrons"])
-    good_jets = jet_selection(jets, muons, (veto_muons | good_muons), parameters["jets"]) & jet_selection(jets, electrons, (veto_electrons | good_electrons) , parameters["jets"])
+    good_jets = jet_selection(jets, muons, (veto_muons | good_muons), parameters["jets"], jets_met_corrected) & jet_selection(jets, electrons, (veto_electrons | good_electrons) , parameters["jets"], jets_met_corrected)
     bjets = good_jets & (getattr(jets, parameters["btagging algorithm"]) > parameters["btagging WP"])
 
     # apply basic event selection -> individual categories cut later
@@ -66,10 +66,12 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
-    #met = (scalars["MET_pt"] > 20)
-    met = (scalars["MET_pt_nom"] > 20)
+    if jets_met_corrected:
+        met = (scalars["MET_pt_nom"] > 20)
+    else: 
+        met = (scalars["MET_pt"] > 20)
 
-    #mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
+    mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
 
     ### calculation of all needed variables
     var = {}
@@ -82,12 +84,11 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     indices["leading"] = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
     indices["subleading"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.int32)
 
+    if jets_met_corrected: pt_label = "pt_nom"
+    else: pt_label = "pt"
     variables = [
-        #("jet", jets, good_jets, "leading", ["pt", "eta", "btagDeepB"]),
-        ("jet", jets, good_jets, "leading", ["pt_nom", "eta"]),
-        ("bjet", jets, bjets, "leading", ["pt_nom", "eta"]),
-        #("jet", jets, good_jets, "subleading", ["pt", "eta", "btagDeepB"])
-        #("jet", jets, good_jets, "subleading", ["pt", "eta"])
+        ("jet", jets, good_jets, "leading", [pt_label, "eta"]),
+        ("bjet", jets, bjets, "leading", [pt_label, "eta"]),
     ]
 
     # special role of lepton
@@ -109,8 +110,10 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * scalars["genWeight"] * parameters["lumi"] * samples_info[sample]["XS"] / samples_info[sample]["ngen_weight"]
 
         # pu corrections
-        pu_weights = compute_pu_weights(parameters["pu_corrections_target"], weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
+        #pu_weights = compute_pu_weights(parameters["pu_corrections_target"], weights["nominal"], scalars["Pileup_nTrueInt"], scalars["PV_npvsGood"])
+        pu_weights = compute_pu_weights(parameters["pu_corrections_target"], weights["nominal"], scalars["Pileup_nTrueInt"], scalars["Pileup_nTrueInt"])
         weights["nominal"] = weights["nominal"] * pu_weights
+        var["pu_weights"] = pu_weights
 
         # lepton SF corrections
         electron_weights = compute_lepton_weights(electrons, (electrons.deltaEtaSC + electrons.eta), electrons.pt, mask_events, good_electrons, evaluator, ["el_triggerSF", "el_recoSF", "el_idSF"])
@@ -118,7 +121,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
 
         # btag SF corrections
-        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator)
+        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator, jets_met_corrected)
         weights["nominal"] = weights["nominal"] * btag_weights
 
     #in case of data: check if event is in golden lumi file
@@ -180,7 +183,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
             # create histograms filled with weighted events
             for k in var.keys():
                 if not k in histogram_settings.keys():
-                    raise Exception("please add variable {0} to config_analysis.py".format(k))
+                    raise Exception("please add variable {0} to definitions_analysis.py".format(k))
                 hist = Histogram(*ha.histogram_from_vector(var[k][cut], weights["nominal"][cut], NUMPY_LIB.linspace(histogram_settings[k][0], histogram_settings[k][1], histogram_settings[k][2])))
                 ret["hist_{0}_{1}".format(name, k)] = hist
 
@@ -206,7 +209,9 @@ if __name__ == "__main__":
     parser.add_argument('--files-per-batch', action='store', help='Number of files to process per batch', type=int, default=1, required=False)
     parser.add_argument('--cache-location', action='store', help='Path prefix for the cache, must be writable', type=str, default=os.path.join(os.getcwd(), 'cache'))
     parser.add_argument('--cache-only', action='store_true', help='Produce only cached files')
+    parser.add_argument('--jets-met-corrected', action='store_true', help='defines usage of pt_nom vs pt for jets and MET', default=False)
     parser.add_argument('--outdir', action='store', help='directory to store outputs', type=str, default=os.getcwd())
+    parser.add_argument('--outtag', action='store', help='outtag added to output file', type=str, default="")
     parser.add_argument('--filelist', action='store', help='List of files to load', type=str, default=None, required=False)
     parser.add_argument('--sample', action='store', help='sample name', type=str, default=None, required=True)
     parser.add_argument('--DNN', action='store', choices=['save-arrays','cmb_binary', 'cmb_multiclass', 'ffwd_binary', 'ffwd_multiclass',False, 'mass_fit'], help='options for DNN evaluation / preparation', default=False)
@@ -234,7 +239,7 @@ if __name__ == "__main__":
     from definitions_analysis import parameters, eraDependentParameters, samples_info
     parameters.update(eraDependentParameters[args.year])
     print(parameters)
-
+    
     outdir = args.outdir
     if not os.path.exists(outdir):
         print(os.getcwd())
@@ -250,7 +255,7 @@ if __name__ == "__main__":
 
     #define arrays to load: these are objects that will be kept together
     arrays_objects = [
-        "Jet_pt_nom", "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId", "Jet_mass", "Jet_hadronFlavour",
+        "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId",
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge",
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy",
     ]
@@ -258,19 +263,23 @@ if __name__ == "__main__":
     arrays_event = [
         "PV_npvsGood", "PV_ndof", "PV_npvs", "PV_score", "PV_x", "PV_y", "PV_z", "PV_chi2",
         "Flag_goodVertices", "Flag_globalSuperTightHalo2016Filter", "Flag_HBHENoiseFilter", "Flag_HBHENoiseIsoFilter", "Flag_EcalDeadCellTriggerPrimitiveFilter", "Flag_BadPFMuonFilter", "Flag_BadChargedCandidateFilter", "Flag_eeBadScFilter", "Flag_ecalBadCalibFilter",
-        "MET_pt_nom", "MET_phi_nom", "MET_sumEt",
+        "MET_sumEt",
         "run", "luminosityBlock", "event",
-        "nGenPart"
     ]
 
     if args.year.startswith('2016'): arrays_event += [ "HLT_Ele27_WPTight_Gsf", "HLT_IsoMu24", "HLT_IsoTkMu24" ]
     else: arrays_event += [ "HLT_Ele35_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150", "HLT_IsoMu27" ]
 
-    if args.sample.startswith("TT"):
-        arrays_event.append("genTtbarId")
+    if args.sample.startswith("TT"): arrays_event.append("genTtbarId")
 
-    if is_mc:
-        arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight"]
+    if args.jets_met_corrected:
+        arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight", "nGenPart"]
+        arrays_event += ["MET_pt_nom", "MET_phi_nom"]
+        arrays_objects += ["Jet_pt_nom", "Jet_mass_nom", "Jet_hadronFlavour"]
+    else:
+        arrays_event += ["MET_pt", "MET_phi"]
+        arrays_objects += ["Jet_pt", "Jet_mass"]
+
 
     filenames = None
     if not args.filelist is None:
@@ -343,12 +352,11 @@ if __name__ == "__main__":
 
 
             #### this is where the magic happens: run the main analysis
-            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model)
+            results += dataset.analyze(analyze_data, NUMPY_LIB=NUMPY_LIB, parameters=parameters, is_mc = is_mc, lumimask=lumimask, cat=args.categories, sample=args.sample, samples_info=samples_info, DNN=args.DNN, DNN_model=model, jets_met_corrected=args.jets_met_corrected)
 
 
-            print(results)
-
-            #Save the results
-            if not os.path.isdir(args.outdir):
-                os.makedirs(args.outdir)
-            results.save_json(os.path.join(outdir,"out_{}.json".format(args.sample)))
+    print(results)
+    #Save the results
+    if not os.path.isdir(args.outdir):
+        os.makedirs(args.outdir)
+    results.save_json(os.path.join(outdir,"out_{0}{1}.json".format(args.sample, args.outtag)))
