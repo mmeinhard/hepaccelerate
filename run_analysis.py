@@ -73,14 +73,14 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     # trigger logic
     leps_pdgId = NUMPY_LIB.maximum(ha.get_in_offsets(muons.pdgId, muons.offsets, indices["leading"], mask_events, good_muons), ha.get_in_offsets(electrons.pdgId, electrons.offsets, indices["leading"], mask_events, good_electrons))
     if is_mc:
-        trigger_el = ((scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
+        trigger_el = ((scalars["HLT_Ele32_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
         trigger_mu = (scalars["HLT_IsoMu27"] & (abs(leps_pdgId) == 13))
         trigger = (trigger_el | trigger_mu)
     else:
         if "SingleMuon" in sample:
             trigger = (scalars["HLT_IsoMu27"] & (abs(leps_pdgId) == 13))
         if "SingleElectron" in sample:
-            trigger = ((scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
+            trigger = ((scalars["HLT_Ele32_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
     mask_events = mask_events & trigger
 
     mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
@@ -174,12 +174,12 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         categories["sl_jge6_t3"] = mask_events_split & (njets >=6) & (btags ==3)
         categories["sl_jge6_tge4"] = mask_events_split & (njets >=6) & (btags >=4)
 
-        print("sl_j4_t3", scalars["event"][categories["sl_j4_t3"]], len(scalars["event"][categories["sl_j4_t3"]]))       
-        print("sl_j5_t3", scalars["event"][categories["sl_j5_t3"]], len(scalars["event"][categories["sl_j5_t3"]]))       
-        print("sl_jge6_t3", scalars["event"][categories["sl_jge6_t3"]], len(scalars["event"][categories["sl_jge6_t3"]]))       
-        print("sl_j4_tge4", scalars["event"][categories["sl_j4_tge4"]], len(scalars["event"][categories["sl_j4_tge4"]]))       
-        print("sl_j5_tge4", scalars["event"][categories["sl_j5_tge4"]], len(scalars["event"][categories["sl_j5_tge4"]]))       
-        print("sl_jge6_tge4", scalars["event"][categories["sl_jge6_tge4"]], len(scalars["event"][categories["sl_jge6_tge4"]]))       
+        #print("sl_j4_t3", scalars["event"][categories["sl_j4_t3"]], len(scalars["event"][categories["sl_j4_t3"]]))       
+        #print("sl_j5_t3", scalars["event"][categories["sl_j5_t3"]], len(scalars["event"][categories["sl_j5_t3"]]))       
+        #print("sl_jge6_t3", scalars["event"][categories["sl_jge6_t3"]], len(scalars["event"][categories["sl_jge6_t3"]]))       
+        #print("sl_j4_tge4", scalars["event"][categories["sl_j4_tge4"]], len(scalars["event"][categories["sl_j4_tge4"]]))       
+        #print("sl_j5_tge4", scalars["event"][categories["sl_j5_tge4"]], len(scalars["event"][categories["sl_j5_tge4"]]))       
+        #print("sl_jge6_tge4", scalars["event"][categories["sl_jge6_tge4"]], len(scalars["event"][categories["sl_jge6_tge4"]]))       
  
         if not isinstance(cat, list):
             cat = [cat] 
@@ -283,7 +283,7 @@ if __name__ == "__main__":
     ]
 
     if args.year.startswith('2016'): arrays_event += [ "HLT_Ele27_WPTight_Gsf", "HLT_IsoMu24", "HLT_IsoTkMu24" ]
-    else: arrays_event += [ "HLT_Ele35_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150", "HLT_IsoMu27" ]
+    else: arrays_event += [ "HLT_Ele32_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150", "HLT_IsoMu27" ]
 
     if args.sample.startswith("TT"): arrays_event.append("genTtbarId")
 

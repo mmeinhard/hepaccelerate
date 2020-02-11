@@ -23,7 +23,8 @@ parameters = {
             "dr": 0.4,
             "pt": 30,
             "eta": 2.4,
-            "jetId": 2,
+            #"jetId": 2,
+            "jetId": 4,
             "puId": 4
     },
     "fatjets": {
@@ -57,7 +58,7 @@ eraDependentParameters = {
         "lumimask": "data/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON.txt",
         "pu_corrections_file" : "data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root",
         "corrections" : [
-            "el_triggerSF SFs_ele_pt_ele_sceta_ele28_ht150_OR_ele35_2017BCDEF ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb_Data_MC_v5.0.histo.root",
+            "el_triggerSF ele28_ht150_OR_ele32_ele_pt_ele_sceta ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb2017_v3.histo.root",
             "el_recoSF EGamma_SF2D ./data/egammaEffi_EGM2D_runBCDEF_passingRECO_v2.histo.root",
             "el_idSF EGamma_SF2D ./data/2017_ElectronTight.histo.root",
             "mu_triggerSF IsoMu27_PtEtaBins/pt_abseta_ratio ./data/EfficienciesAndSF_RunBtoF_Nov17Nov2017.histo.root",
@@ -80,7 +81,8 @@ samples_info = {
     "ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8": {
             "process": "ttHTobb",
             "XS": 0.2934045,
-            "ngen_weight": 4163245.9264759924,
+            #"ngen_weight": 4163245.9264759924, # maren v1 
+            "ngen_weight": 4163307.8224659907, # maren v2
             },
     "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 365.45736135,

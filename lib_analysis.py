@@ -129,9 +129,9 @@ def compute_btag_weights(jets, mask_rows, mask_content, evaluator, jets_met_corr
     for tag in ["BTagSFDeepCSV_3_iterativefit_central_0", "BTagSFDeepCSV_3_iterativefit_central_1", "BTagSFDeepCSV_3_iterativefit_central_2"]:
         
         if jets_met_corrected:
-            SF_btag = evaluator[tag](jets.eta, jets.pt_nom, jets.btagDeepB)
+            SF_btag = evaluator[tag](abs(jets.eta), jets.pt_nom, jets.btagDeepB)
         else:
-            SF_btag = evaluator[tag](jets.eta, jets.pt, jets.btagDeepB)
+            SF_btag = evaluator[tag](abs(jets.eta), jets.pt, jets.btagDeepB)
         if tag.endswith("0"):
             SF_btag[jets.hadronFlavour != 5] = 1.
         if tag.endswith("1"):
@@ -140,7 +140,7 @@ def compute_btag_weights(jets, mask_rows, mask_content, evaluator, jets_met_corr
             SF_btag[jets.hadronFlavour != 0] = 1.
 
         pJet_weight *= SF_btag
-
+   
     per_event_weights = ha.multiply_in_offsets(jets, pJet_weight, mask_rows, mask_content)
     return per_event_weights
 
