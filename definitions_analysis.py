@@ -86,20 +86,24 @@ samples_info = {
             },
     "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 365.45736135,
-            "ngen_weight": 32426751447.698845,
+            #"ngen_weight": 32426751447.698845, # maren v1
+            "ngen_weight": 30587299080.771355, # maren v2
             },
     "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8": {
             "process": "ttHToNonbb",
             "XS": 0.2150955,
-            "ngen_weight": 4371809.996849993,
+            #"ngen_weight": 4371809.996849993, # maren v1
+            "ngen_weight": 4388463.910001993, # maren v2
             },
     "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 88.341903326,
-            "ngen_weight": 4720387516.446639,
+            #"ngen_weight": 4720387516.446639, # maren v1
+            "ngen_weight": 4723736912.791826, # maren v2
             },
     "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 377.9607353256,
-            "ngen_weight": 27550924865.573532,
+            #"ngen_weight": 27550924865.573532, # maren v1
+            "ngen_weight": 27606592686.468067, # maren v2
             },
 }
 
