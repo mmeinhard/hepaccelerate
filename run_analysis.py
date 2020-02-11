@@ -36,6 +36,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     jets = data["Jet"]
 
     nEvents = muons.numevents()
+    indices = {}
+    indices["leading"] = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
+    indices["subleading"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.int32)
 
     mask_events = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.bool)
 
@@ -46,11 +49,6 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         flags.append("Flag_eeBadScFilter")
     for flag in flags:
         mask_events = mask_events & scalars[flag]
-    if args.year.startswith('2016'):
-        trigger = (scalars["HLT_Ele27_WPTight_Gsf"] | scalars["HLT_IsoMu24"]  | scalars["HLT_IsoTkMu24"])
-    else:
-        trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu27"])
-    mask_events = mask_events & trigger
     mask_events = mask_events & (scalars["PV_npvsGood"]>0)
     #mask_events = vertex_selection(scalars, mask_events)
 
@@ -67,9 +65,23 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     btags = ha.sum_in_offsets(jets, bjets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
     if jets_met_corrected:
-        met = (scalars["MET_pt_nom"] > 20)
+        #met = (scalars["MET_pt_nom"] > 20)
+        met = (scalars["METFixEE2017_pt_nom"] > 20)
     else: 
         met = (scalars["MET_pt"] > 20)
+
+    # trigger logic
+    leps_pdgId = NUMPY_LIB.maximum(ha.get_in_offsets(muons.pdgId, muons.offsets, indices["leading"], mask_events, good_muons), ha.get_in_offsets(electrons.pdgId, electrons.offsets, indices["leading"], mask_events, good_electrons))
+    if is_mc:
+        trigger_el = ((scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
+        trigger_mu = (scalars["HLT_IsoMu27"] & (abs(leps_pdgId) == 13))
+        trigger = (trigger_el | trigger_mu)
+    else:
+        if "SingleMuon" in sample:
+            trigger = (scalars["HLT_IsoMu27"] & (abs(leps_pdgId) == 13))
+        if "SingleElectron" in sample:
+            trigger = ((scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
+    mask_events = mask_events & trigger
 
     mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
 
@@ -79,10 +91,6 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     var["njets"] = njets
     var["btags"] = btags
     var["nleps"] = nleps
-
-    indices = {}    
-    indices["leading"] = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.int32)
-    indices["subleading"] = NUMPY_LIB.ones(nEvents, dtype=NUMPY_LIB.int32)
 
     if jets_met_corrected: pt_label = "pt_nom"
     else: pt_label = "pt"
@@ -165,7 +173,14 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         categories["sl_j5_tge4"] = mask_events_split & (njets ==5) & (btags >=4)
         categories["sl_jge6_t3"] = mask_events_split & (njets >=6) & (btags ==3)
         categories["sl_jge6_tge4"] = mask_events_split & (njets >=6) & (btags >=4)
-        
+
+        print("sl_j4_t3", scalars["event"][categories["sl_j4_t3"]], len(scalars["event"][categories["sl_j4_t3"]]))       
+        print("sl_j5_t3", scalars["event"][categories["sl_j5_t3"]], len(scalars["event"][categories["sl_j5_t3"]]))       
+        print("sl_jge6_t3", scalars["event"][categories["sl_jge6_t3"]], len(scalars["event"][categories["sl_jge6_t3"]]))       
+        print("sl_j4_tge4", scalars["event"][categories["sl_j4_tge4"]], len(scalars["event"][categories["sl_j4_tge4"]]))       
+        print("sl_j5_tge4", scalars["event"][categories["sl_j5_tge4"]], len(scalars["event"][categories["sl_j5_tge4"]]))       
+        print("sl_jge6_tge4", scalars["event"][categories["sl_jge6_tge4"]], len(scalars["event"][categories["sl_jge6_tge4"]]))       
+ 
         if not isinstance(cat, list):
             cat = [cat] 
         for c in cat:
@@ -256,8 +271,8 @@ if __name__ == "__main__":
     #define arrays to load: these are objects that will be kept together
     arrays_objects = [
         "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId",
-        "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge",
-        "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy",
+        "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge", "Muon_pdgId",
+        "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy", "Electron_pdgId",
     ]
     #these are variables per event
     arrays_event = [
@@ -273,13 +288,17 @@ if __name__ == "__main__":
     if args.sample.startswith("TT"): arrays_event.append("genTtbarId")
 
     if args.jets_met_corrected:
-        arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight", "nGenPart"]
-        arrays_event += ["MET_pt_nom", "MET_phi_nom"]
-        arrays_objects += ["Jet_pt_nom", "Jet_mass_nom", "Jet_hadronFlavour"]
+        #arrays_event += ["MET_pt_nom", "MET_phi_nom"]
+        arrays_event += ["METFixEE2017_pt_nom", "METFixEE2017_phi_nom"]
+        arrays_objects += ["Jet_pt_nom", "Jet_mass_nom"]
     else:
         arrays_event += ["MET_pt", "MET_phi"]
         arrays_objects += ["Jet_pt", "Jet_mass"]
 
+    if is_mc: 
+        arrays_objects += ["Jet_hadronFlavour"] 
+        arrays_event += ["PV_npvsGood", "Pileup_nTrueInt", "genWeight", "nGenPart"]
+        #arrays_event += ["MET_pt_nom", "MET_phi_nom"]
 
     filenames = None
     if not args.filelist is None:
