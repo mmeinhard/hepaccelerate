@@ -71,16 +71,23 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         met = (scalars["MET_pt"] > 20)
 
     # trigger logic
-    leps_pdgId = NUMPY_LIB.maximum(ha.get_in_offsets(muons.pdgId, muons.offsets, indices["leading"], mask_events, good_muons), ha.get_in_offsets(electrons.pdgId, electrons.offsets, indices["leading"], mask_events, good_electrons))
-    if is_mc:
-        trigger_el = ((scalars["HLT_Ele32_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
-        trigger_mu = (scalars["HLT_IsoMu27"] & (abs(leps_pdgId) == 13))
-        trigger = (trigger_el | trigger_mu)
+    #leps_pdgId = NUMPY_LIB.maximum(ha.get_in_offsets(muons.pdgId, muons.offsets, indices["leading"], mask_events, good_muons), ha.get_in_offsets(electrons.pdgId, electrons.offsets, indices["leading"], mask_events, good_electrons))
+
+    #if is_mc:
+    #    trigger_el = ((scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
+    #    trigger_mu = (scalars["HLT_IsoMu27"] & (abs(leps_pdgId) == 13))
+    #    trigger = (trigger_el | trigger_mu)
+    #else:
+    #    if "SingleMuon" in sample:
+    #        trigger = (scalars["HLT_IsoMu27"] & (abs(leps_pdgId) == 13))
+    #    if "SingleElectron" in sample:
+    #        trigger = ((scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
+    #mask_events = mask_events & trigger
+
+    if args.year.startswith('2016'):
+        trigger = (scalars["HLT_Ele27_WPTight_Gsf"] | scalars["HLT_IsoMu24"]  | scalars["HLT_IsoTkMu24"])
     else:
-        if "SingleMuon" in sample:
-            trigger = (scalars["HLT_IsoMu27"] & (abs(leps_pdgId) == 13))
-        if "SingleElectron" in sample:
-            trigger = ((scalars["HLT_Ele32_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
+        trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu27"])
     mask_events = mask_events & trigger
 
     mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
@@ -283,7 +290,7 @@ if __name__ == "__main__":
     ]
 
     if args.year.startswith('2016'): arrays_event += [ "HLT_Ele27_WPTight_Gsf", "HLT_IsoMu24", "HLT_IsoTkMu24" ]
-    else: arrays_event += [ "HLT_Ele32_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150", "HLT_IsoMu27" ]
+    else: arrays_event += [ "HLT_Ele35_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150", "HLT_IsoMu27" ]
 
     if args.sample.startswith("TT"): arrays_event.append("genTtbarId")
 
