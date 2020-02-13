@@ -59,10 +59,12 @@ def jet_selection(jets, leps, mask_leps, cuts, jets_met_corrected):
     jets.masks["pass_dr"] = jets_pass_dr
     if jets_met_corrected:
         good_jets = (jets.pt_nom > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & jets_pass_dr
+        if cuts["type"] == "jet":
+            good_jets &= (jets.puId>=cuts["puId"] | jets.pt_nom > 50.)   
     else:
         good_jets = (jets.pt > cuts["pt"]) & (NUMPY_LIB.abs(jets.eta) < cuts["eta"]) & (jets.jetId >= cuts["jetId"]) & jets_pass_dr
-    if cuts["type"] == "jet":
-      good_jets &= (jets.puId>=cuts["puId"]) 
+        if cuts["type"] == "jet":
+            good_jets &= (jets.puId>=cuts["puId"] | jets.pt > 50.) 
 
     return good_jets
 

@@ -60,6 +60,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     # apply basic event selection -> individual categories cut later
     nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
+    nMuons =  ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8)
+    nElectrons = ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8)
+    
     lepton_veto = NUMPY_LIB.add(ha.sum_in_offsets(muons, veto_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, veto_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
     njets = ha.sum_in_offsets(jets, good_jets, mask_events, jets.masks["all"], NUMPY_LIB.int8)
 
@@ -84,11 +87,21 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     #        trigger = ((scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (abs(leps_pdgId) == 11) )
     #mask_events = mask_events & trigger
 
-    if args.year.startswith('2016'):
-        trigger = (scalars["HLT_Ele27_WPTight_Gsf"] | scalars["HLT_IsoMu24"]  | scalars["HLT_IsoTkMu24"])
-    else:
-        trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu27"])
-    mask_events = mask_events & trigger
+    #if args.year.startswith('2016'):
+    #    trigger = (scalars["HLT_Ele27_WPTight_Gsf"] | scalars["HLT_IsoMu24"]  | scalars["HLT_IsoTkMu24"])
+    #else:
+    #    trigger = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] | scalars["HLT_IsoMu27"])
+    #mask_events = mask_events & trigger
+
+    trigger_el = (scalars["HLT_Ele35_WPTight_Gsf"] | scalars["HLT_Ele28_eta2p1_WPTight_Gsf_HT150"] ) & (nleps == 1) & (nElectrons == 1)
+    trigger_mu = (scalars["HLT_IsoMu27"] ) & (nleps == 1) & (nMuons == 1)
+    if not is_mc:
+        if "SingleMuon" in sample:
+            trigger_el = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.bool)
+        if "SingleElectron" in sample:
+            trigger_mu = NUMPY_LIB.zeros(nEvents, dtype=NUMPY_LIB.bool)
+    mask_events = mask_events & (trigger_el | trigger_mu)
+    
 
     mask_events = mask_events & (nleps == 1) & (lepton_veto == 0) & (njets >= 4) & (btags >=2) & met
 
@@ -326,8 +339,8 @@ if __name__ == "__main__":
     for ibatch, files_in_batch in enumerate(chunks(filenames, args.files_per_batch)):
         #define our dataset
         structs = ["Jet", "Muon", "Electron"]
-        #dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", structs, arrays_event)
-        dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "nanoAOD/Events", structs, arrays_event)
+        dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "Events", structs, arrays_event)
+        #dataset = NanoAODDataset(files_in_batch, arrays_objects + arrays_event, "nanoAOD/Events", structs, arrays_event)
         dataset.get_cache_dir = lambda fn,loc=args.cache_location: os.path.join(loc, fn)
 
         if not args.from_cache:
