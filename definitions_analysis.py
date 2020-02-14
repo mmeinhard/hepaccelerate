@@ -83,8 +83,8 @@ samples_info = {
             "process": "ttHTobb",
             "XS": 0.2934045,
             #"ngen_weight": 4163245.9264759924, # maren v1 
-            # "ngen_weight": 4163307.8224659907, # maren v2
-            "ngen_weight": 4216319.315883999, # central nanoAOD v2
+             "ngen_weight": 4163307.8224659907, # maren v2
+            #"ngen_weight": 4216319.315883999, # central nanoAOD v2
             },
     "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 365.45736135,
