@@ -57,6 +57,7 @@ eraDependentParameters = {
         "lumi":  41529.0,
         "lumimask": "data/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON.txt",
         "pu_corrections_file" : "data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root",
+        "btag_SF_file" : "data/DeepCSV_94XSF_V5_B_F.btag.csv",
         "corrections" : [
             #"el_triggerSF ele28_ht150_OR_ele32_ele_pt_ele_sceta ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb2017_v3.histo.root",
             "el_triggerSF SFs_ele_pt_ele_sceta_ele28_ht150_OR_ele35_2017BCDEF ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb_Data_MC_v5.0.histo.root",
@@ -66,7 +67,7 @@ eraDependentParameters = {
             "mu_isoSF NUM_TightRelIso_DEN_TightIDandIPCut_pt_abseta ./data/RunBCDEF_SF_ISO.histo.root",
             "mu_idSF NUM_TightID_DEN_genTracks_pt_abseta ./data/RunBCDEF_SF_ID.histo.root",
             #"BTagSF * ./data/DeepCSV_94XSF_V5_B_F.btag.csv"
-            "BTagSF * ./data/deepCSV_sfs_v2.btag.csv"
+            #"BTagSF * ./data/deepCSV_sfs_v2.btag.csv"
         ],
         "btagging algorithm" : "btagDeepB",
         "btagging WP" : 0.4941, # medium working point for btagDeepB

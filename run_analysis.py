@@ -130,7 +130,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
 
         # btag SF corrections
-        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator, jets_met_corrected)
+        btag_weights = compute_btag_weights(jets, mask_events, good_jets, parameters["btag_SF_target"], jets_met_corrected)
         weights["nominal"] = weights["nominal"] * btag_weights
 
     #in case of data: check if event is in golden lumi file
@@ -250,6 +250,7 @@ if __name__ == "__main__":
     from coffea.util import USE_CUPY
     from coffea.lumi_tools import LumiMask, LumiData
     from coffea.lookup_tools import extractor
+    from coffea.btag_tools import BTagScaleFactor
 
     # load definitions
     from definitions_analysis import parameters, eraDependentParameters, samples_info
@@ -348,13 +349,13 @@ if __name__ == "__main__":
 
                 # add information needed for MC corrections
                 parameters["pu_corrections_target"] = load_puhist_target(parameters["pu_corrections_file"])
+                parameters["btag_SF_target"] = BTagScaleFactor(parameters["btag_SF_file"], BTagScaleFactor.RESHAPE, 'iterativefit', keep_df=True) 
 
                 ext = extractor()
                 for corr in parameters["corrections"]:
                     ext.add_weight_sets([corr])
                 ext.finalize()
                 evaluator = ext.make_evaluator()
-
 
             if ibatch == 0:
                 print(dataset.printout())
