@@ -171,7 +171,11 @@ class Dataset(object):
         t0 = time.time()
         for ifn, fn in enumerate(self.filenames):
             fi = uproot.open(fn)
-            tt = fi.get(self.treename)
+            try:    
+                tt = fi.get(self.treename)
+            except:
+                treenamefromnano = "nanoAOD/" + self.treename
+                tt = fi.get(treenamefromnano)   
             if nthreads > 1:
                 from concurrent.futures import ThreadPoolExecutor
                 with ThreadPoolExecutor(max_workers=nthreads) as executor:
