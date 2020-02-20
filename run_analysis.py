@@ -56,7 +56,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     good_muons, veto_muons = lepton_selection(muons, parameters["muons"])
     good_electrons, veto_electrons = lepton_selection(electrons, parameters["electrons"])
     good_jets = jet_selection(jets, muons, (veto_muons | good_muons), parameters["jets"], jets_met_corrected) & jet_selection(jets, electrons, (veto_electrons | good_electrons) , parameters["jets"], jets_met_corrected)
-    bjets = good_jets & (getattr(jets, parameters["btagging algorithm"]) > parameters["btagging WP"])
+    bjets = good_jets & (getattr(jets, parameters["btagging algorithm"]) > parameters["btagging WP"][parameters["btagging algorithm"]])
 
     # apply basic event selection -> individual categories cut later
     nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
@@ -130,8 +130,9 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
 
         # btag SF corrections
-        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator, jets_met_corrected)
-        weights["nominal"] = weights["nominal"] * btag_weights
+        btag_weights = compute_btag_weights(jets, mask_events, good_jets, evaluator, jets_met_corrected, parameters["btagging algorithm"])
+        var["btag_weights"] = btag_weights
+        weights["nominal"] = weights["nominal"] #* btag_weights
 
     #in case of data: check if event is in golden lumi file
     if not is_mc and not (lumimask is None):
@@ -163,6 +164,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         categories = {}
         categories["sl_jge4_tge2"] = mask_events_split
         categories["sl_jge4_tge3"] = mask_events_split & (btags >=3)
+        categories["sl_jge4_tge4"] = mask_events_split & (btags >=4)
 
         categories["sl_j4_tge3"] = mask_events_split & (njets ==4) & (btags >=3)
         categories["sl_j5_tge3"] = mask_events_split & (njets ==5) & (btags >=3)
@@ -271,7 +273,7 @@ if __name__ == "__main__":
 
     #define arrays to load: these are objects that will be kept together
     arrays_objects = [
-        "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId",
+        "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_btagCSVV2", "Jet_jetId", "Jet_puId",
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge", "Muon_pdgId",
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy", "Electron_pdgId",
     ]
@@ -351,6 +353,8 @@ if __name__ == "__main__":
 
                 ext = extractor()
                 for corr in parameters["corrections"]:
+                    if "BTagSF" in corr and parameters["btagging algorithm"] not in corr: #Load only btagging SF for choson algorithm
+                        continue
                     ext.add_weight_sets([corr])
                 ext.finalize()
                 evaluator = ext.make_evaluator()

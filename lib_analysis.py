@@ -126,16 +126,22 @@ def compute_lepton_weights(leps, lepton_x, lepton_y, mask_rows, mask_content, ev
     return per_event_weights
 
 # btagging scale factor 
-def compute_btag_weights(jets, mask_rows, mask_content, evaluator, jets_met_corrected):
+def compute_btag_weights(jets, mask_rows, mask_content, evaluator, jets_met_corrected, btagalgorithm):
 
     pJet_weight = NUMPY_LIB.ones(len(mask_content))
 
-    for tag in ["BTagSFDeepCSV_3_iterativefit_central_0", "BTagSFDeepCSV_3_iterativefit_central_1", "BTagSFDeepCSV_3_iterativefit_central_2"]:
+    idtag = None
+    if btagalgorithm == "btagDeepB":
+        idtag = "DeepCSV"
+    elif btagalgorithm == "btagCSVV2":
+        idtag = "CSVV2"
+
+    for tag in ["BTagSF{}{}_3_iterativefit_central_0".format(btagalgorithm,idtag), "BTagSF{}{}_3_iterativefit_central_1".format(btagalgorithm,idtag), "BTagSF{}{}_3_iterativefit_central_2".format(btagalgorithm,idtag)]:
         
         if jets_met_corrected:
-            SF_btag = evaluator[tag](abs(jets.eta), jets.pt_nom, jets.btagDeepB)
+            SF_btag = evaluator[tag](abs(jets.eta), jets.pt_nom, getattr(jets, btagalgorithm))
         else:
-            SF_btag = evaluator[tag](abs(jets.eta), jets.pt, jets.btagDeepB)
+            SF_btag = evaluator[tag](abs(jets.eta), jets.pt, getattr(jets, btagalgorithm))
         if tag.endswith("0"):
             SF_btag[jets.hadronFlavour != 5] = 1.
         if tag.endswith("1"):
