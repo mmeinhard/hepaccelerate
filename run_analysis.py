@@ -56,7 +56,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
     good_muons, veto_muons = lepton_selection(muons, parameters["muons"])
     good_electrons, veto_electrons = lepton_selection(electrons, parameters["electrons"])
     good_jets = jet_selection(jets, muons, (veto_muons | good_muons), parameters["jets"], jets_met_corrected) & jet_selection(jets, electrons, (veto_electrons | good_electrons) , parameters["jets"], jets_met_corrected)
-    bjets = good_jets & (getattr(jets, parameters["btagging algorithm"]) > parameters["btagging WP"])
+    bjets = good_jets & (getattr(jets, parameters["btagging algorithm"]) > parameters["btagging WP"][parameters["btagging algorithm"]])
 
     # apply basic event selection -> individual categories cut later
     nleps =  NUMPY_LIB.add(ha.sum_in_offsets(muons, good_muons, mask_events, muons.masks["all"], NUMPY_LIB.int8), ha.sum_in_offsets(electrons, good_electrons, mask_events, electrons.masks["all"], NUMPY_LIB.int8))
@@ -130,8 +130,10 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         weights["nominal"] = weights["nominal"] * muon_weights * electron_weights
 
         # btag SF corrections
-        btag_weights = compute_btag_weights(jets, mask_events, good_jets, parameters["btag_SF_target"], jets_met_corrected)
+        btag_weights = compute_btag_weights(jets, mask_events, good_jets, parameters["btag_SF_target"], jets_met_corrected, parameters["btagging algorithm"])
+        var["btag_weights"] = btag_weights
         weights["nominal"] = weights["nominal"] * btag_weights
+
 
     #in case of data: check if event is in golden lumi file
     if not is_mc and not (lumimask is None):
@@ -163,6 +165,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
         categories = {}
         categories["sl_jge4_tge2"] = mask_events_split
         categories["sl_jge4_tge3"] = mask_events_split & (btags >=3)
+        categories["sl_jge4_tge4"] = mask_events_split & (btags >=4)
 
         categories["sl_j4_tge3"] = mask_events_split & (njets ==4) & (btags >=3)
         categories["sl_j5_tge3"] = mask_events_split & (njets ==5) & (btags >=3)
@@ -214,6 +217,41 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
 
     #TODO: implement JECs
+
+    ## To display properties of a single event
+    #evts = [5991859]
+    #mask = NUMPY_LIB.zeros_like(mask_events)
+    #for iev in evts:
+    #  mask |= (scalars["event"] == iev)
+    ##import pdb
+    ##pdb.set_trace()
+    #print("mask", mask)
+    #print('nevt', scalars["event"][mask])
+    #print('pass sel', mask_events[mask])
+    #print('nleps', nleps[mask])
+    #print('njets', njets[mask])
+    ##print('met', scalars['MET_pt_nom'][mask])
+    ##print('lep_pt', leading_lepton_pt[mask])
+    ##print('jet_pt', leading_jet_pt[mask])
+    ##print('lep_eta', leading_lepton_eta[mask])
+    #print('pu_weight', pu_weights[mask])
+    #print('btag_weight', btag_weights[mask])
+    #print('lep_weight', muon_weights[mask] * electron_weights[mask])
+    #print('nevents', np.count_nonzero(mask_events))
+
+    #np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
+    #for evt in evts:
+    #    evt_idx = NUMPY_LIB.where( scalars["event"] == evt )[0][0]
+    #    start = jets.offsets[evt_idx]
+    #    stop  = jets.offsets[evt_idx+1]
+    #    print(f'!!! EVENT {evt} !!!')
+    #    print(f'njets good {njets[evt_idx]}, total {stop-start}')
+    #    #print('jets mask', nonbjets[start:stop])
+    #    print('jets pt', jets.pt_nom[start:stop])
+    #    print('jets eta', jets.eta[start:stop])
+    #    print('jets btag', getattr(jets, parameters["btagging algorithm"])[start:stop])
+    #    print('jet Id', jets.jetId[start:stop]),
+    #    print('jet puId', jets.puId[start:stop])
 
     return ret
 
@@ -272,7 +310,7 @@ if __name__ == "__main__":
 
     #define arrays to load: these are objects that will be kept together
     arrays_objects = [
-        "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_jetId", "Jet_puId",
+        "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_btagCSVV2", "Jet_jetId", "Jet_puId",
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge", "Muon_pdgId",
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy", "Electron_pdgId",
     ]
@@ -349,7 +387,7 @@ if __name__ == "__main__":
 
                 # add information needed for MC corrections
                 parameters["pu_corrections_target"] = load_puhist_target(parameters["pu_corrections_file"])
-                parameters["btag_SF_target"] = BTagScaleFactor(parameters["btag_SF_file"], BTagScaleFactor.RESHAPE, 'iterativefit', keep_df=True) 
+                parameters["btag_SF_target"] = BTagScaleFactor(parameters["btag_SF_{}".format(parameters["btagging algorithm"])], BTagScaleFactor.RESHAPE, 'iterativefit', keep_df=True) 
 
                 ext = extractor()
                 for corr in parameters["corrections"]:

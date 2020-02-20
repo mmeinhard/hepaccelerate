@@ -57,7 +57,11 @@ eraDependentParameters = {
         "lumi":  41529.0,
         "lumimask": "data/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON.txt",
         "pu_corrections_file" : "data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root",
-        "btag_SF_file" : "data/DeepCSV_94XSF_V5_B_F.btag.csv",
+        "btag_SF_btagDeepB" : "./data/deepCSV_sfs_v2.btag.csv",
+        "btag_SF_btagCSVV2" : "./data/CSVv2_Moriond17_B_H.btag.csv",
+        #"BTagSFbtagCSVV2 * ./data/CSVv2_94XSF_V2_B_F_2017.btag.csv",
+        #"btag_SF_btagDeepB * ./data/deepCSV_sfs_v2.btag.csv",
+        #"BTagSF * ./data/DeepCSV_94XSF_V4_B_F.btag.csv"
         "corrections" : [
             #"el_triggerSF ele28_ht150_OR_ele32_ele_pt_ele_sceta ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb2017_v3.histo.root",
             "el_triggerSF SFs_ele_pt_ele_sceta_ele28_ht150_OR_ele35_2017BCDEF ./data/SingleEG_JetHT_Trigger_Scale_Factors_ttHbb_Data_MC_v5.0.histo.root",
@@ -70,7 +74,10 @@ eraDependentParameters = {
             #"BTagSF * ./data/deepCSV_sfs_v2.btag.csv"
         ],
         "btagging algorithm" : "btagDeepB",
-        "btagging WP" : 0.4941, # medium working point for btagDeepB
+        "btagging WP" : 
+            {"btagDeepB": 0.4941, # medium working point for btagDeepB
+            "btagCSVV2": 0.8484 # medium working point for btagCSVV2
+            },
         "bbtagging WP" : 0.8, # medium 2 working point for DeepDoubleB tagger
     }
 
@@ -79,38 +86,54 @@ eraDependentParameters = {
 
 #################################### Samples info ##############################################################################
 
+dataset = "maren_v2"
+
+genweights = {
+    "maren": {
+        "ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8": 4163245.9264759924,
+        "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": 32426751447.698845,
+        "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8": 4371809.996849993,
+        "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8": 4720387516.446639,
+        "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8": 27550924865.573532,
+    },
+    "maren_v2":{
+        "ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8": 4163307.8224659907,
+        "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": 30587299080.771355,
+        "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8": 4388463.910001993,
+        "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8": 4723736912.791826,
+        "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8": 27606592686.468067,
+    },
+    "nanoAOD_central":{
+        "ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8": 4216319.315883999,
+        "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": 720253370.0403845, #not full statistics
+        "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8": 5722756.565262001,
+        "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8": 283000430.5968169, #not full statistics
+        "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8": 1647945788.3386502, #not full statistics
+    },
+}
+
 samples_info = {
     "ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8": {
             "process": "ttHTobb",
             "XS": 0.2934045,
-            #"ngen_weight": 4163245.9264759924, # maren v1 
-             "ngen_weight": 4163307.8224659907, # maren v2
-            #"ngen_weight": 4216319.315883999, # central nanoAOD v2
+            "ngen_weight": genweights[dataset]["ttHTobb_M125_TuneCP5_13TeV-powheg-pythia8"],
             },
     "TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 365.45736135,
-            #"ngen_weight": 32426751447.698845, # maren v1
-            "ngen_weight": 30587299080.771355, # maren v2
-            #"ngen_weight": 720253370.0403845, # central nanoAOD v2 (not full statistics)
+            "ngen_weight": genweights[dataset]["TTToSemiLeptonic_TuneCP5_PSweights_13TeV-powheg-pythia8"],
             },
     "ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8": {
             "process": "ttHToNonbb",
             "XS": 0.2150955,
-            #"ngen_weight": 4371809.996849993, # maren v1
-            "ngen_weight": 4388463.910001993, # maren v2
-            #"ngen_weight": 5722756.565262001, # central nanoAOD v2
+            "ngen_weight": genweights[dataset]["ttHToNonbb_M125_TuneCP5_13TeV-powheg-pythia8"],
             },
     "TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 88.341903326,
-            #"ngen_weight": 4720387516.446639, # maren v1
-            "ngen_weight": 4723736912.791826, # maren v2
-            #"ngen_weight": 283000430.5968169, # central nanoAOD v2 (not full statistics)
+            "ngen_weight": genweights[dataset]["TTTo2L2Nu_TuneCP5_PSweights_13TeV-powheg-pythia8"],
             },
     "TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8": {
             "XS": 377.9607353256,
-            #"ngen_weight": 27550924865.573532, # maren v1
-            "ngen_weight": 27606592686.468067, # maren v2
-            #"ngen_weight": 1647945788.3386502, # central nanoAOD v2 (not full statistics)
+            "ngen_weight": genweights[dataset]["TTToHadronic_TuneCP5_PSweights_13TeV-powheg-pythia8"],
             },
 }
 
@@ -123,6 +146,7 @@ histogram_settings = {
     "nleps" : (0,10,11),
     "btags" : (0,8,9),
     "pu_weights" : (0,4,21),
+    "btag_weights" : (0,2,50),
     "leading_jet_pt" : (0,500,31),
     "leading_jet_pt_nom" : (0,500,31),
     "leading_jet_eta" : (-2.4,2.4,31),
