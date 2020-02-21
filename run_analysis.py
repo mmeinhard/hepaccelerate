@@ -387,7 +387,7 @@ if __name__ == "__main__":
 
                 # add information needed for MC corrections
                 parameters["pu_corrections_target"] = load_puhist_target(parameters["pu_corrections_file"])
-                parameters["btag_SF_target"] = BTagScaleFactor(parameters["btag_SF_{}".format(parameters["btagging algorithm"])], BTagScaleFactor.RESHAPE, 'iterativefit', keep_df=True) 
+                parameters["btag_SF_target"] = BTagScaleFactor(parameters["btag_SF_{}".format(parameters["btagging algorithm"])], BTagScaleFactor.RESHAPE, 'iterativefit,iterativefit,iterativefit', keep_df=True) 
 
                 ext = extractor()
                 for corr in parameters["corrections"]:
