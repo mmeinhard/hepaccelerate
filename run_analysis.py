@@ -146,7 +146,7 @@ def analyze_data(data, sample, NUMPY_LIB=None, parameters={}, samples_info={}, i
 
     # in case of tt+jets -> split in ttbb, tt2b, ttb, ttcc, ttlf
     processes = {}
-    if sample.startswith("TT"):
+    if sample.startswith("TTTo"): #Changed for TTV samples
         ttCls = scalars["genTtbarId"]%100
         processes["ttbb"] = mask_events & (ttCls >=53) & (ttCls <=56)
         processes["tt2b"] = mask_events & (ttCls ==52)
@@ -310,7 +310,7 @@ if __name__ == "__main__":
 
     #define arrays to load: these are objects that will be kept together
     arrays_objects = [
-        "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_btagCSVV2", "Jet_jetId", "Jet_puId", #"Jet_btagDeepFlavB" add for DeepFlavour
+        "Jet_eta", "Jet_phi", "Jet_btagDeepB", "Jet_btagCSVV2", "Jet_btagDeepFlavB", "Jet_jetId", "Jet_puId", #"Jet_btagDeepFlavB" add for DeepFlavour
         "Muon_pt", "Muon_eta", "Muon_phi", "Muon_mass", "Muon_pfRelIso04_all", "Muon_tightId", "Muon_charge", "Muon_pdgId",
         "Electron_pt", "Electron_eta", "Electron_phi", "Electron_mass", "Electron_charge", "Electron_deltaEtaSC", "Electron_cutBased", "Electron_dz", "Electron_dxy", "Electron_pdgId",
     ]
@@ -325,7 +325,7 @@ if __name__ == "__main__":
     if args.year.startswith('2016'): arrays_event += [ "HLT_Ele27_WPTight_Gsf", "HLT_IsoMu24", "HLT_IsoTkMu24" ]
     else: arrays_event += [ "HLT_Ele35_WPTight_Gsf", "HLT_Ele28_eta2p1_WPTight_Gsf_HT150", "HLT_IsoMu27" ]
 
-    if args.sample.startswith("TT"): arrays_event.append("genTtbarId")
+    if args.sample.startswith("TTTo"): arrays_event.append("genTtbarId")
 
     if args.jets_met_corrected:
         #arrays_event += ["MET_pt_nom", "MET_phi_nom"]
